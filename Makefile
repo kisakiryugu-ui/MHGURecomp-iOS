@@ -120,6 +120,10 @@ GAMELIB_SRCS := tools/gen.py tools/lifter.py tools/neon.py tools/nso.py tools/ga
 GAMELIB_ID := $(shell (cat $(GAMELIB_SRCS); echo '$(GENFLAGS)') | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)
 
 RT_OBJ   = $(patsubst runtime/%.c,$(O)/rt/%.o,$(RT_SRC)) $(RT_CXX) $(O)/rt/overlay.o $(IMGUI_OBJ)
+# MHGU_TOUCHSCREEN_PATCH: native UIKit touch surface.
+ifeq ($(PLATFORM),darwin)
+RT_OBJ += $(O)/rt/touch_overlay.o
+endif
 # Dear ImGui with cimgui's C API (third_party/cimgui: Forge plugins' ImGui, runtime/forge_imgui.c, overlay.cpp)
 IMGUI    := third_party/cimgui
 IMGUI_SRC := $(IMGUI)/cimgui.cpp $(addprefix $(IMGUI)/imgui/,imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp imgui_demo.cpp)
@@ -163,6 +167,10 @@ $(O)/rt/forge_imgui.o: runtime/forge_imgui_thunks.inc $(IMGUI)/cimgui.h
 $(O)/rt/forge_imgui.o: RTFLAGS += -DCIMGUI_NO_EXPORT -Wno-unused-variable
 
 $(O)/rt/platform/darwin.o: RTFLAGS += -x objective-c
+
+$(O)/rt/touch_overlay.o: runtime/touch_overlay.m runtime/touch_overlay.h
+	@mkdir -p $(dir $@)
+	$(CC) $(RTFLAGS) -x objective-c -c $< -o $@
 
 $(O)/rt/overlay.o: runtime/overlay.cpp runtime/overlay.h runtime/forge.h
 	@mkdir -p $(dir $@)

@@ -11,6 +11,9 @@
 #include "hle.h"
 #include "kernel.h"
 #include "mods.h"
+#ifdef __APPLE__
+#include "touch_overlay.h" // MHGU_TOUCHSCREEN_PATCH
+#endif
 
 const char *g_game_dir = "game";  // folder holding exefs/ and romfs/ (the player's own dump)
 
@@ -52,7 +55,10 @@ static void boot(const char *root) {
     villagehub_init();  // (Village quests at the Hub / Pub counter: runtime/hle/villagehub.c)
     movelog_init();  // (debug, MHGU_LOG_MOVES: runtime/hle/movelog.c)
     quickhunt_init();  // (debug, MHGU_QUICKHUNT: runtime/hle/quickhunt.c)
-    emtrace_init();  // (debug, MHGU_EMTRACE: runtime/hle/emtrace.c)
+    emtrace_init();
+#ifdef __APPLE__
+    mhgu_touch_runtime_init();
+#endif  // (debug, MHGU_EMTRACE: runtime/hle/emtrace.c)
     cheats_init();  // (cheat codes from cheats/: runtime/cheats.c)
 
     uint32_t stack_size = 0x100000;

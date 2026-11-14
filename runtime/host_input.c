@@ -23,6 +23,9 @@
 #include "config.h"
 #include "forge.h"
 #include "hle/input.h"
+#ifdef __APPLE__
+#include "touch_overlay.h" // MHGU_TOUCHSCREEN_PATCH
+#endif
 #include "overlay.h"
 #include "rt.h"
 #include "textinput.h"
@@ -664,6 +667,13 @@ void host_input_update(void) {
         if (!scanned) scanned = true, pick_pad();
     }
 
+#ifdef __APPLE__
+    uint64_t tb = 0;
+    int tlx = 0, tly = 0, trx = 0, try_ = 0;
+    mhgu_touch_snapshot(&tb, &tlx, &tly, &trx, &try_);
+    b |= tb;
+    lx += tlx; ly += tly; rx += trx; ry += try_;
+#endif
     uint64_t frame = g_present_count;
     for (int i = 0; i < nscript; i++) {
         const ScriptStep *st = &script[i];

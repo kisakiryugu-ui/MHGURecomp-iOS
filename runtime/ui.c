@@ -9,6 +9,9 @@
 #include "config.h"
 #include "mods.h"
 #include "rt.h"
+#ifdef __APPLE__
+#include "touch_overlay.h" // MHGU_TOUCHSCREEN_PATCH
+#endif
 
 volatile uint64_t g_present_count;
 static SDL_Window *window;
@@ -102,6 +105,9 @@ void ui_init(void) {
     if (g_config.display_mode != DISPLAY_WINDOWED) set_fullscreen(true);
 #endif
     backend_init();
+#ifdef __APPLE__
+    mhgu_touch_install(window);
+#endif
 }
 
 // Alt+Enter: windowed <-> the full-screen mode of the settings (Windowed in the settings: borderless).
