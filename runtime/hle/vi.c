@@ -1,6 +1,8 @@
 // nn::vi (display / layer) and nv:: (graphics driver init), implemented on the host.
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
+#include <math.h>
 
 #include "../hle.h"
 #include "../config.h"
@@ -20,7 +22,11 @@ uint32_t g_native_window;
 // 60 and ~135 fps. The settings' FPS (mhgurecomp.ini: 30..240, default 60); MHGU_FRAMERATE overrides it. Above the
 // monitor's refresh rate the settings' VSync must be Off (immediate present): FIFO / mailbox wait for the display.
 #define FPS_OBJ_GLOBAL 0x2326764u
+// MHGU_IOS_TOUCH_FPS_V42: atomic override, callable from UIKit on main thread.
+static atomic_int s_touch_fps_override = ATOMIC_VAR_INIT(0);
 static float framerate(void) {
+    int touch_fps = atomic_load_explicit(&s_touch_fps_override, memory_order_relaxed);
+    if (touch_fps) return (float)touch_fps;
     static float f = -1;
     if (f < 0) {
         const char *e = getenv("MHGU_FRAMERATE");
@@ -31,21 +37,31 @@ static float framerate(void) {
     }
     return f;
 }
+void mhgu_touch_fps_set(int fps) {
+    if (fps != 30 && fps != 60 && fps != 90 && fps != 120 && fps != 144 && fps != 240) return;
+    atomic_store_explicit(&s_touch_fps_override, fps, memory_order_relaxed);
+    LOG("[vi] touchscreen frame rate target now %d (display refresh / VSync may cap presentation)\n", fps);
+}
+int mhgu_touch_fps_get(void) { return (int)framerate(); }
 void vi_apply_framerate(void) {  // (also called per presented frame: runtime/nvn/vulkan/device.c)
     float want = framerate();
     uint32_t obj = LD32(FPS_OBJ_GLOBAL);
     if (obj < HEAP_BASE || obj >= HEAP_BASE + HEAP_MAX) return;  // (not created yet)
     float cur = LDF(obj + 0x3c);
-    if (cur == 30.0f && want != 30.0f) STF(obj + 0x3c, want);
+    // Apply in-game FPS changes, not only the original 30 FPS startup value.
+    // Guard against writing before the engine has initialized its timing field.
+    if (cur >= 10.0f && cur <= 240.0f && fabsf(cur - want) > 0.1f)
+        STF(obj + 0x3c, want);
 }
 
 // The display's vsync event: 60 Hz, or the frame rate target when that is higher (the game waits for it per frame).
 static void *vsync_thread(void *arg) {
     (void)arg;
-    float fr = framerate();
-    const uint64_t period = (uint64_t)(1e9 / (fr > 60.0f ? fr : 60.0f));
     uint64_t next = plat_now_ns();
     for (;;) {
+        // Re-read when the player changes FPS from the on-screen settings.
+        float fr = framerate();
+        uint64_t period = (uint64_t)(1e9 / (fr > 60.0f ? fr : 60.0f));
         next += period;
         plat_sleep_until_ns(next);
         uint64_t now = plat_now_ns();

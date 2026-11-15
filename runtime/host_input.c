@@ -419,6 +419,26 @@ static void pick_pad(void) {  // over every controller SDL sees now: those MHGU_
 }
 
 void host_input_event(const SDL_Event *e) {
+#if defined(__APPLE__)
+    // MHGU_IOS_EXCLUSIVE_UIKIT_TOUCH_V431: the V4.3 UIKit overlay is the ONLY
+    // touchscreen-to-gamepad input source on iOS. The original SDL finger
+    // gesture (double-tap upper right = Forge) must not see physical touches.
+    switch (e->type) {
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+        return;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        if (e->button.which == SDL_TOUCH_MOUSEID) return;
+        break;
+    case SDL_EVENT_MOUSE_MOTION:
+        if (e->motion.which == SDL_TOUCH_MOUSEID) return;
+        break;
+    default:
+        break;
+    }
+#endif
     if (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) pad_pressed(e->gbutton.which);
     if (overlay_event(e)) return;  // (Forge's menu open: keyboard and mouse are its)
     if (textinput_event(e)) return;  // (typing into a text entry: not controller buttons)
@@ -463,6 +483,11 @@ void host_input_event(const SDL_Event *e) {
         if (mouse_captured) mouse_dx += e->motion.xrel, mouse_dy += e->motion.yrel;
         break;
     case SDL_EVENT_FINGER_DOWN: {
+#if defined(__APPLE__)
+        // MHGU_IOS_NATIVE_TOUCH_EXCLUSIVE_V42: UIKit overlay owns physical fingers.
+        // Do not synthesize A for every touch: it breaks simultaneous stick+button
+        // presses and can make R+X become R+X+A. Leave desktop finger fallback intact.
+#else
         static uint64_t last_tap_ns;
         uint64_t now_ns = plat_now_ns();
         // Top-right corner double-tap toggles Forge menu on iPad
@@ -475,10 +500,13 @@ void host_input_event(const SDL_Event *e) {
             }
         }
         mouse_buttons |= B(BTN_A);
+#endif
         break;
     }
     case SDL_EVENT_FINGER_UP:
+#if !defined(__APPLE__)
         mouse_buttons &= ~B(BTN_A);
+#endif
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: {
 #if defined(__APPLE__)

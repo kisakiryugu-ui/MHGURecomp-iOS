@@ -141,7 +141,13 @@ static void mhgu_style_menu(UIButton *button) {
     button.layer.cornerRadius = 9.0;
     button.layer.borderWidth = 1.1;
     button.layer.borderColor = [hudGold() colorWithAlphaComponent:0.8].CGColor;
-    button.titleLabel.font = [UIFont fontWithName:@"Georgia-Bold" size:10] ?: [UIFont boldSystemFontOfSize:10];
+    button.titleLabel.font = [UIFont fontWithName:@"Georgia-Bold" size:11] ?: [UIFont boldSystemFontOfSize:11];
+    button.titleLabel.adjustsFontSizeToFitWidth = YES;
+    button.titleLabel.minimumScaleFactor = .65;
+    button.layer.shadowColor = hudGold().CGColor;
+    button.layer.shadowOffset = CGSizeMake(1.0, 1.5);
+    button.layer.shadowOpacity = .22f;
+    button.layer.shadowRadius = 2.0f;
     [button setTitleColor:hudCream() forState:UIControlStateNormal];
     [button setTitleColor:[UIColor colorWithRed:1 green:.86 blue:.42 alpha:1] forState:UIControlStateHighlighted];
 }
@@ -150,12 +156,15 @@ static void mhgu_style_menu(UIButton *button) {
     uint64_t _mask;
     uint64_t _pressStartMs;
     NSMutableSet *_active;
+    UIColor *_accentV44;  // MHGU_IOS_CONTROL_PROFILES_V44
     UILabel *_caption;
     UILabel *_badge;
     CALayer *_innerRing;
 }
 - (id)initWithLabel:(NSString *)label mask:(uint64_t)mask;
 - (void)setMask:(uint64_t)mask;
+- (void)setCaption:(NSString *)caption; // MHGU_IOS_TOUCH_CONTROLS_V43
+- (void)setAccentV44:(UIColor *)accent;
 - (void)resetInput;
 @end
 
@@ -165,6 +174,7 @@ static void mhgu_style_menu(UIButton *button) {
     _mask = mask;
     _active = [[NSMutableSet alloc] init];
     self.multipleTouchEnabled = YES;
+    self.exclusiveTouch = NO; // More than one virtual button at a time.
     self.opaque = NO;
     self.backgroundColor = hudBackground();
     self.layer.borderColor = [hudGold() colorWithAlphaComponent:.95].CGColor;
@@ -218,9 +228,10 @@ static void mhgu_style_menu(UIButton *button) {
 }
 - (void)setPressedStyle:(BOOL)pressed {
     self.backgroundColor = pressed ? hudPressed() : hudBackground();
-    self.layer.borderColor = (pressed ? [UIColor colorWithRed:1 green:.84 blue:.36 alpha:1] : hudGold()).CGColor;
+    UIColor *accent = _accentV44 ?: hudGold();
+    self.layer.borderColor = (pressed ? [accent colorWithAlphaComponent:1.0] : accent).CGColor;
     self.layer.borderWidth = pressed ? 2.8 : 2.1;
-    _innerRing.borderColor = (pressed ? hudGold() : [hudGold() colorWithAlphaComponent:.46]).CGColor;
+    _innerRing.borderColor = (pressed ? accent : [accent colorWithAlphaComponent:.46]).CGColor;
 }
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
@@ -256,6 +267,14 @@ static void mhgu_style_menu(UIButton *button) {
     [self resetInput];
     _mask = mask;
 }
+- (void)setCaption:(NSString *)caption { _caption.text = caption; }
+- (void)setAccentV44:(UIColor *)accent {
+    if (accent != _accentV44) {
+        [_accentV44 release];
+        _accentV44 = [accent retain];
+    }
+    [self setPressedStyle:(_active.count != 0)];
+}
 - (void)resetInput {
     if (_active.count > 0) set_button_mask(_mask, NO);
     [_active removeAllObjects];
@@ -267,6 +286,7 @@ static void mhgu_style_menu(UIButton *button) {
     [_caption release];
     [_badge release];
     [_innerRing release];
+    [_accentV44 release];
     [super dealloc];
 }
 @end
@@ -278,6 +298,7 @@ static void mhgu_style_menu(UIButton *button) {
     UILabel *_name;
 }
 - (id)initLeft:(BOOL)left;
+- (void)setCaption:(NSString *)caption;
 - (void)resetInput;
 @end
 
@@ -285,6 +306,8 @@ static void mhgu_style_menu(UIButton *button) {
 - (id)initLeft:(BOOL)left {
     if (!(self = [super initWithFrame:CGRectZero])) return nil;
     _left = left;
+    self.multipleTouchEnabled = YES; // MHGU_IOS_TOUCH_FPS_V42: allow button touches while moving.
+    self.exclusiveTouch = NO;
     self.opaque = NO;
     self.backgroundColor = hudBackground();
     self.layer.borderWidth = 2.5;
@@ -314,6 +337,7 @@ static void mhgu_style_menu(UIButton *button) {
     if (!_tracked) _knob.center = CGPointMake(self.bounds.size.width / 2, self.bounds.size.height / 2);
     _name.frame = CGRectMake(0, d * 0.08, d, 13);
 }
+- (void)setCaption:(NSString *)caption { _name.text = caption; }
 - (void)setPosition:(CGPoint)p {
     CGFloat cx = self.bounds.size.width / 2, cy = self.bounds.size.height / 2;
     CGFloat travel = MIN(self.bounds.size.width, self.bounds.size.height) * 0.29;
@@ -377,20 +401,22 @@ static void mhgu_style_menu(UIButton *button) {
     BOOL _moved;
     UILabel *_label;
 }
+- (void)setCaption:(NSString *)caption;
 - (void)resetInput;
 @end
 @implementation MHGUTouchItemStrip
 - (id)initWithFrame:(CGRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.opaque = NO;
-    self.multipleTouchEnabled = NO;
+    self.multipleTouchEnabled = YES;
+    self.exclusiveTouch = NO;
     self.backgroundColor = hudBackground();
     self.layer.borderColor = [hudGold() colorWithAlphaComponent:.9].CGColor;
     self.layer.borderWidth = 2.0;
     self.layer.cornerRadius = 15;
     _label = [[UILabel alloc] initWithFrame:self.bounds];
     _label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _label.text = @"◀  ITEM  •  USE  ▶";
+    _label.text = @"◀  ITEM  ✦  USE  ▶";
     _label.textColor = hudCream();
     _label.textAlignment = NSTextAlignmentCenter;
     _label.font = [UIFont fontWithName:@"Georgia-Bold" size:14] ?: [UIFont boldSystemFontOfSize:14];
@@ -426,14 +452,18 @@ static void mhgu_style_menu(UIButton *button) {
         int count = MIN(5, MAX(1, (int)lrint(fabs(dist) / 55.0)));
         if (fabs(dist) >= 19) queue_steps(ammo, (dist > 0 ? 1 : -1) * count);
     } else {
-        // Simple tap uses the item when sheathed, or sheaths the weapon.
-        pulse_button_mask(UINT64_C(1) << BTN_Y, 95);
+        // V4.3: direct tap zones; faster than repeated swipes. Center uses Y.
+        CGFloat x = p.x / MAX(1.0, self.bounds.size.width);
+        if (x < 0.33) queue_steps(NO, -1);
+        else if (x > 0.67) queue_steps(NO, 1);
+        else pulse_button_mask(UINT64_C(1) << BTN_Y, 95);
     }
 }
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
     if (_finger && [touches containsObject:_finger]) [self resetInput];
 }
+- (void)setCaption:(NSString *)caption { _label.text = caption; }
 - (void)resetInput { [_finger release]; _finger = nil; _moved = NO; }
 - (void)dealloc { [self resetInput]; [_label release]; [super dealloc]; }
 @end
@@ -464,13 +494,42 @@ static void mhgu_style_menu(UIButton *button) {
     UIButton *_showButton;
     UIButton *_alphaButton;
     UIButton *_settingsButton;  // compact gu-native-style settings tab
+    UIButton *_fpsButton;
+    MHGUTouchButton *_combo[2];
+    UIButton *_comboEdit[2];
+    UISlider *_opacitySlider, *_sensitivitySlider;
+    UILabel *_sensitivityText;
+    CGFloat _cameraSensitivity;
     BOOL _settingsOpen;
     BOOL _controlsHidden;
     NSUInteger _opacityStep;
+    NSInteger _profileV44;  // 0 melee, 1 ranged, 2 custom
+    NSMutableSet *_hiddenV44;
+    NSMutableDictionary *_stylesV44;
+    UIButton *_profileButtonV44, *_editorButtonV44, *_hudButtonV44;
+    UIButton *_itemPrevV44, *_itemNextV44, *_itemUseV44;
+    BOOL _repeatHeldV44[2];
+    uint64_t _repeatStartV44[2], _repeatLastV44[2];
+    NSTimer *_repeatTimerV44[2];
+    UIView *_editorPanelV44;
+    UIScrollView *_editorScrollV44;
+    NSArray *_editorNamesV44;
+    UILabel *_hudLabelV44;
+    NSTimer *_hudTimerV44;
+    BOOL _hudOnV44;
+    uint64_t _hudPrevFrameV44, _hudPrevMsV44;
 }
 - (void)resetAll;
 - (void)syncWeapon;
 - (void)updateMenuVisibility;
+- (BOOL)applyComboSlot:(NSUInteger)slot text:(NSString *)value;
+- (void)applyVisibilityV44;
+- (void)applyStylesV44;
+- (void)updateEditorLayoutV44;
+- (void)updateEditorRowsV44;
+- (void)saveProfileV44;
+- (NSString *)profileStorageKeyV44:(NSString *)kind;
+- (void)updateProfileTitleV44;
 @end
 
 @implementation MHGUTouchRoot
@@ -513,11 +572,25 @@ static void mhgu_style_menu(UIButton *button) {
     self.backgroundColor = [UIColor clearColor];
     self.opaque = NO;
     self.multipleTouchEnabled = YES;
+    self.exclusiveTouch = NO;
     self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _controls = [[NSMutableArray alloc] init];
     _namedControls = [[NSMutableDictionary alloc] init];
-    NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"mhgu_touch_layout_v3"];
-    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:saved ? saved : @{}];
+    NSUserDefaults *profilePrefsV44 = [NSUserDefaults standardUserDefaults];
+    _profileV44 = [profilePrefsV44 objectForKey:@"mhgu_touch_active_profile_v44"] ?
+                  [profilePrefsV44 integerForKey:@"mhgu_touch_active_profile_v44"] : 2;
+    if (_profileV44 < 0 || _profileV44 > 2) _profileV44 = 2;
+    NSString *layoutKeyV44 = [NSString stringWithFormat:@"mhgu_touch_layout_profile_v44_%ld", (long)_profileV44];
+    NSDictionary *saved = [profilePrefsV44 dictionaryForKey:layoutKeyV44];
+    if (!saved && _profileV44 == 2) saved = [profilePrefsV44 dictionaryForKey:@"mhgu_touch_layout_v3"];
+    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:saved ?: @{}];
+    NSString *hiddenKeyV44 = [NSString stringWithFormat:@"mhgu_touch_hidden_profile_v44_%ld", (long)_profileV44];
+    NSArray *hidden = [profilePrefsV44 arrayForKey:hiddenKeyV44];
+    // New dedicated item buttons replace the older overlapping strip by default.
+    _hiddenV44 = [[NSMutableSet alloc] initWithArray:hidden ?: @[@"ITEM_BAR"]];
+    NSString *styleKeyV44 = [NSString stringWithFormat:@"mhgu_touch_styles_profile_v44_%ld", (long)_profileV44];
+    _stylesV44 = [[NSMutableDictionary alloc] initWithDictionary:
+                  [profilePrefsV44 dictionaryForKey:styleKeyV44] ?: @{}];
     _left = [[MHGUTouchStick alloc] initLeft:YES];
     [self addControl:_left];
     [self named:@"MOVE" view:_left];
@@ -550,6 +623,31 @@ static void mhgu_style_menu(UIButton *button) {
     [self addControl:_itemStrip];
     [self named:@"ITEM_BAR" view:_itemStrip];
     [_itemStrip release];
+    // Dedicated item controls (tap or hold the arrows; use is a single Y pulse).
+    _itemPrevV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    _itemNextV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    _itemUseV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    NSArray *itemButtonsV44 = @[_itemPrevV44, _itemUseV44, _itemNextV44];
+    NSArray *itemNamesV44 = @[@"ITEM_PREV", @"ITEM_USE", @"ITEM_NEXT"];
+    NSArray *itemCaptionsV44 = @[@"◀ ITEM", @"✦ USE", @"ITEM ▶"];
+    for (NSUInteger i=0; i<3; i++) {
+        UIButton *b = [itemButtonsV44 objectAtIndex:i];
+        mhgu_style_menu(b);
+        [b setTitle:[itemCaptionsV44 objectAtIndex:i] forState:UIControlStateNormal];
+        [self addControl:b];
+        [self named:[itemNamesV44 objectAtIndex:i] view:b];
+        b.exclusiveTouch = NO;
+    }
+    [_itemPrevV44 addTarget:self action:@selector(itemPrevDownV44:)
+           forControlEvents:UIControlEventTouchDown];
+    [_itemNextV44 addTarget:self action:@selector(itemNextDownV44:)
+           forControlEvents:UIControlEventTouchDown];
+    [_itemUseV44 addTarget:self action:@selector(itemUseDownV44:)
+           forControlEvents:UIControlEventTouchDown];
+    UIControlEvents itemEndV44 = UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
+                                 UIControlEventTouchCancel | UIControlEventTouchDragExit;
+    [_itemPrevV44 addTarget:self action:@selector(itemStopV44:) forControlEvents:itemEndV44];
+    [_itemNextV44 addTarget:self action:@selector(itemStopV44:) forControlEvents:itemEndV44];
     _fire = [self addMaskButton:(UINT64_C(1) << BTN_A) text:@"FIRE"];
     _reload = [self addMaskButton:(UINT64_C(1) << BTN_X) text:@"RELOAD"];
     _aim = [self addMaskButton:(UINT64_C(1) << BTN_R) text:@"AIM"];
@@ -566,6 +664,15 @@ static void mhgu_style_menu(UIButton *button) {
     _arts[1] = [self addMaskButton:(UINT64_C(1) << BTN_RIGHT) text:@"ART2"];
     _arts[2] = [self addMaskButton:(UINT64_C(1) << BTN_DOWN) text:@"ART3"];
     for (int i=0; i<3; i++) [self named:[NSString stringWithFormat:@"ART%d",i+1] view:_arts[i]];
+
+    // Two user-defined simultaneous button masks, independent of regular controls.
+    _combo[0] = [self addMaskButton:(UINT64_C(1) << BTN_A) | (UINT64_C(1) << BTN_B) text:@"A+B"];
+    _combo[1] = [self addMaskButton:(UINT64_C(1) << BTN_R) | (UINT64_C(1) << BTN_X) text:@"R+X"];
+    [self named:@"COMBO_1" view:_combo[0]];
+    [self named:@"COMBO_2" view:_combo[1]];
+    NSUserDefaults *comboPrefs = [NSUserDefaults standardUserDefaults];
+    [self applyComboSlot:0 text:([comboPrefs stringForKey:@"mhgu_touch_combo_0"] ?: @"A+B")];
+    [self applyComboSlot:1 text:([comboPrefs stringForKey:@"mhgu_touch_combo_1"] ?: @"R+X")];
 
     _cameraButton = [UIButton buttonWithType:UIButtonTypeCustom];
     mhgu_style_menu(_cameraButton);
@@ -634,9 +741,118 @@ static void mhgu_style_menu(UIButton *button) {
     [self addSubview:_settingsButton];
     _settingsOpen = NO;
 
-    _opacityStep = [[NSUserDefaults standardUserDefaults] objectForKey:@"mhgu_touch_opacity_step"] ?
-                   (NSUInteger)[[NSUserDefaults standardUserDefaults] integerForKey:@"mhgu_touch_opacity_step"] % 3 : 1;
-    [self updateOpacity];
+    // FPS selector lives in the existing 2-column settings panel, not over gameplay.
+    // Persist the player's choice; this takes precedence over the INI on next launch.
+    _fpsButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    mhgu_style_menu(_fpsButton);
+    [_fpsButton addTarget:self action:@selector(cycleFPS:)
+           forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:_fpsButton];
+    NSNumber *savedFPS = [[NSUserDefaults standardUserDefaults] objectForKey:@"mhgu_touch_fps_v42"];
+    if (savedFPS) mhgu_touch_fps_set([savedFPS intValue]);
+    [_fpsButton setTitle:[NSString stringWithFormat:@"FPS:%d", mhgu_touch_fps_get()]
+                  forState:UIControlStateNormal];
+
+    // Slider values persist; migrate opacity from the old three-step setting.
+    NSUserDefaults *uiPrefs = [NSUserDefaults standardUserDefaults];
+    _opacityStep = [uiPrefs objectForKey:@"mhgu_touch_opacity_step"] ?
+                   (NSUInteger)[uiPrefs integerForKey:@"mhgu_touch_opacity_step"] % 3 : 1;
+    static const float oldAlpha[] = {.38f, .64f, .88f};
+    _opacitySlider = [[UISlider alloc] initWithFrame:CGRectZero];
+    _opacitySlider.minimumValue = .25f;
+    _opacitySlider.maximumValue = 1.0f;
+    _opacitySlider.value = [uiPrefs objectForKey:@"mhgu_touch_opacity_v43"] ?
+                            [uiPrefs floatForKey:@"mhgu_touch_opacity_v43"] : oldAlpha[_opacityStep];
+    _opacitySlider.minimumTrackTintColor = hudGold();
+    _opacitySlider.thumbTintColor = hudCream();
+    [_opacitySlider addTarget:self action:@selector(opacityChanged:)
+              forControlEvents:UIControlEventValueChanged];
+    [self addSubview:_opacitySlider];
+    [_alphaButton setTitle:@"☼ OPACITY" forState:UIControlStateNormal];
+    _alphaButton.userInteractionEnabled = NO;
+    _cameraSensitivity = [uiPrefs objectForKey:@"mhgu_touch_camera_sensitivity_v43"] ?
+                         [uiPrefs floatForKey:@"mhgu_touch_camera_sensitivity_v43"] : 1.65f;
+    _cameraSensitivity = fmax(.5, fmin(4.0, _cameraSensitivity));
+    _sensitivitySlider = [[UISlider alloc] initWithFrame:CGRectZero];
+    _sensitivitySlider.minimumValue = .5f;
+    _sensitivitySlider.maximumValue = 4.0f;
+    _sensitivitySlider.value = _cameraSensitivity;
+    _sensitivitySlider.minimumTrackTintColor = hudGold();
+    _sensitivitySlider.thumbTintColor = hudCream();
+    [_sensitivitySlider addTarget:self action:@selector(sensitivityChanged:)
+                forControlEvents:UIControlEventValueChanged];
+    [self addSubview:_sensitivitySlider];
+    _sensitivityText = [[UILabel alloc] initWithFrame:CGRectZero];
+    _sensitivityText.backgroundColor = [UIColor clearColor];
+    _sensitivityText.textColor = hudCream();
+    _sensitivityText.textAlignment = NSTextAlignmentCenter;
+    _sensitivityText.font = [UIFont fontWithName:@"Georgia-Bold" size:11] ?: [UIFont boldSystemFontOfSize:11];
+    [self addSubview:_sensitivityText];
+    [self sensitivityChanged:nil];
+    for (int slot=0; slot<2; slot++) {
+        _comboEdit[slot] = [UIButton buttonWithType:UIButtonTypeCustom];
+        mhgu_style_menu(_comboEdit[slot]);
+        [_comboEdit[slot] setTitle:(slot ? @"✦ COMBO II" : @"✦ COMBO I") forState:UIControlStateNormal];
+        [_comboEdit[slot] addTarget:self action:(slot ? @selector(editCombo2:) : @selector(editCombo1:))
+                  forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_comboEdit[slot]];
+    }
+    // Profile + per-control editor + independent FPS/input diagnostics.
+    _profileButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    _editorButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    _hudButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
+    NSArray *moreV44 = @[_profileButtonV44, _editorButtonV44, _hudButtonV44];
+    NSArray *moreSelectorsV44 = @[@"cycleProfileV44:", @"toggleEditorV44:", @"toggleHudV44:"];
+    for (NSUInteger i=0; i<moreV44.count; i++) {
+        UIButton *b = [moreV44 objectAtIndex:i];
+        mhgu_style_menu(b);
+        [b addTarget:self action:NSSelectorFromString([moreSelectorsV44 objectAtIndex:i])
+              forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:b];
+    }
+    [_editorButtonV44 setTitle:@"✎ BUTTONS" forState:UIControlStateNormal];
+    _hudOnV44 = [profilePrefsV44 boolForKey:@"mhgu_touch_hud_v44"];
+    [_hudButtonV44 setTitle:(_hudOnV44 ? @"HUD:ON" : @"HUD:OFF") forState:UIControlStateNormal];
+    [self updateProfileTitleV44];
+
+    _editorPanelV44 = [[UIView alloc] initWithFrame:CGRectZero];
+    _editorPanelV44.backgroundColor = [UIColor colorWithRed:.11 green:.09 blue:.07 alpha:.98];
+    _editorPanelV44.layer.borderColor = hudGold().CGColor;
+    _editorPanelV44.layer.borderWidth = 2;
+    _editorPanelV44.layer.cornerRadius = 14;
+    _editorPanelV44.hidden = YES;
+    [self addSubview:_editorPanelV44];
+    UILabel *editorHeaderV44 = [[[UILabel alloc] initWithFrame:CGRectZero] autorelease];
+    editorHeaderV44.tag = 44001;
+    editorHeaderV44.text = @"✦ HUNTER'S CONTROL WORKSHOP ✦";
+    editorHeaderV44.textColor = hudCream();
+    editorHeaderV44.textAlignment = NSTextAlignmentCenter;
+    editorHeaderV44.font = [UIFont fontWithName:@"Georgia-Bold" size:14] ?: [UIFont boldSystemFontOfSize:14];
+    [_editorPanelV44 addSubview:editorHeaderV44];
+    UIButton *closeV44 = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeV44.tag = 44002;
+    [closeV44 setTitle:@"✕ CLOSE" forState:UIControlStateNormal];
+    [closeV44 setTitleColor:hudCream() forState:UIControlStateNormal];
+    [closeV44 addTarget:self action:@selector(closeEditorV44:) forControlEvents:UIControlEventTouchUpInside];
+    [_editorPanelV44 addSubview:closeV44];
+    _editorScrollV44 = [[UIScrollView alloc] initWithFrame:CGRectZero];
+    [_editorPanelV44 addSubview:_editorScrollV44];
+
+    _hudLabelV44 = [[UILabel alloc] initWithFrame:CGRectZero];
+    _hudLabelV44.backgroundColor = [hudBackground() colorWithAlphaComponent:.88];
+    _hudLabelV44.layer.cornerRadius = 7;
+    _hudLabelV44.layer.masksToBounds = YES;
+    _hudLabelV44.textColor = hudCream();
+    _hudLabelV44.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
+    _hudLabelV44.numberOfLines = 2;
+    _hudLabelV44.userInteractionEnabled = NO;
+    _hudLabelV44.text = @"FPS: --  |  Touch: --";
+    _hudLabelV44.hidden = !_hudOnV44;
+    [self addSubview:_hudLabelV44];
+    _hudTimerV44 = [[NSTimer scheduledTimerWithTimeInterval:.35 target:self
+              selector:@selector(updateHudV44:) userInfo:nil repeats:YES] retain];
+    [self applyStylesV44];
+    [self applyVisibilityV44];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(controllerChanged:)
                                                  name:GCControllerDidConnectNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(controllerChanged:)
@@ -649,6 +865,12 @@ static void mhgu_style_menu(UIButton *button) {
     return self;
 }
 - (void)resetAll {
+    for (int i=0; i<2; i++) {
+        _repeatHeldV44[i] = NO;
+        [_repeatTimerV44[i] invalidate];
+        [_repeatTimerV44[i] release];
+        _repeatTimerV44[i] = nil;
+    }
     for (UIView *v in _controls) {
         if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v resetInput];
         else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v resetInput];
@@ -690,23 +912,116 @@ static void mhgu_style_menu(UIButton *button) {
     _weaponModeButton.hidden = !open || _controlsHidden;
     _lockButton.hidden = !open || _controlsHidden;
     _editButton.hidden = !open || _controlsHidden;
+    _fpsButton.hidden = !open || _controlsHidden;
+    _alphaButton.hidden = !open;
+    _opacitySlider.hidden = !open;
+    _sensitivitySlider.hidden = !open;
+    _sensitivityText.hidden = !open;
+    _comboEdit[0].hidden = !open || _controlsHidden;
+    _comboEdit[1].hidden = !open || _controlsHidden;
+    _profileButtonV44.hidden = !open;
+    _editorButtonV44.hidden = !open || _controlsHidden;
+    _hudButtonV44.hidden = !open;
     _sizeMinus.hidden = !open || _controlsHidden || !_editing;
     _sizePlus.hidden = !open || _controlsHidden || !_editing;
     _resetLayout.hidden = !open || _controlsHidden || !_editing;
     [_settingsButton setTitle:(open ? @"✕" : @"⚙") forState:UIControlStateNormal];
 }
+- (void)cycleFPS:(id)sender {
+    (void)sender;
+    static const int targets[] = {30, 60, 90, 120};
+    int current = mhgu_touch_fps_get(), next = 30;
+    for (unsigned i = 0; i < sizeof targets / sizeof targets[0]; i++) {
+        if (targets[i] > current) { next = targets[i]; break; }
+    }
+    mhgu_touch_fps_set(next);
+    [[NSUserDefaults standardUserDefaults] setInteger:next forKey:@"mhgu_touch_fps_v42"];
+    [_fpsButton setTitle:[NSString stringWithFormat:@"FPS:%d", next]
+                  forState:UIControlStateNormal];
+}
 - (void)toggleSettings:(id)sender {
     (void)sender;
     _settingsOpen = !_settingsOpen;
+    if (!_settingsOpen) _editorPanelV44.hidden = YES;
     [self updateMenuVisibility];
 }
+- (uint64_t)comboBit:(NSString *)part {
+    static const int bits[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_L, BTN_R, BTN_ZL, BTN_ZR,
+                               BTN_PLUS, BTN_MINUS};
+    NSArray *names = @[@"A", @"B", @"X", @"Y", @"L", @"R", @"ZL", @"ZR", @"PLUS", @"MINUS"];
+    for (NSUInteger i=0; i<names.count; i++)
+        if ([part isEqualToString:[names objectAtIndex:i]]) return UINT64_C(1) << bits[i];
+    return 0;
+}
+- (BOOL)applyComboSlot:(NSUInteger)slot text:(NSString *)value {
+    if (slot > 1 || !value) return NO;
+    NSString *clean = [[[value uppercaseString] stringByReplacingOccurrencesOfString:@" " withString:@""]
+                       stringByReplacingOccurrencesOfString:@"＋" withString:@"+"];
+    NSArray *parts = [clean componentsSeparatedByString:@"+"];
+    if (parts.count != 2) return NO;
+    NSString *left = [parts objectAtIndex:0], *right = [parts objectAtIndex:1];
+    uint64_t a = [self comboBit:left], b = [self comboBit:right];
+    if (!a || !b || a == b) return NO;
+    NSString *display = [NSString stringWithFormat:@"%@+%@", left, right];
+    [_combo[slot] setMask:a | b];
+    [_combo[slot] setCaption:display];
+    [[NSUserDefaults standardUserDefaults] setObject:display
+                                             forKey:[NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot]];
+    return YES;
+}
+- (void)editComboSlot:(NSUInteger)slot {
+    UIViewController *vc = self.window.rootViewController;
+    if (!vc) return;
+    NSString *key = [NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"⚒ Forge a Combo"
+        message:@"Type two different buttons: A+B, R+X, ZL+Y, etc. Valid: A B X Y L R ZL ZR PLUS MINUS."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"A+B";
+        tf.text = [[NSUserDefaults standardUserDefaults] stringForKey:key] ?: (slot ? @"R+X" : @"A+B");
+        tf.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Forge" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        NSString *entry = [[alert.textFields firstObject] text];
+        if (![self applyComboSlot:slot text:entry]) {
+            UIAlertController *err = [UIAlertController alertControllerWithTitle:@"Invalid combo"
+                message:@"Use two different button names separated by + (example: R+X)."
+                preferredStyle:UIAlertControllerStyleAlert];
+            [err addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [vc presentViewController:err animated:YES completion:nil];
+        }
+    }]];
+    [vc presentViewController:alert animated:YES completion:nil];
+}
+- (void)editCombo1:(id)sender { (void)sender; [self editComboSlot:0]; }
+- (void)editCombo2:(id)sender { (void)sender; [self editComboSlot:1]; }
 - (void)toggleControls:(id)sender {
     (void)sender;
     [self setControlsVisible:_controlsHidden];
 }
 - (void)updateOpacity {
-    static const CGFloat levels[] = {0.38, 0.64, 0.88};
-    for (UIView *v in _controls) v.alpha = levels[_opacityStep];
+    CGFloat value = _opacitySlider ? _opacitySlider.value : .64f;
+    for (UIView *v in _controls) {
+        NSString *key = [[_namedControls allKeysForObject:v] firstObject];
+        NSDictionary *style = key ? [_stylesV44 objectForKey:key] : nil;
+        CGFloat own = [style objectForKey:@"alpha"] ? [[style objectForKey:@"alpha"] doubleValue] : 1.0;
+        v.alpha = value * MAX(.25, MIN(1.0, own));
+    }
+    _settingsButton.alpha = value; // Gear remains linked to the global opacity slider.
+}
+- (void)opacityChanged:(UISlider *)sender {
+    (void)sender;
+    [self updateOpacity];
+    [[NSUserDefaults standardUserDefaults] setFloat:_opacitySlider.value forKey:@"mhgu_touch_opacity_v43"];
+}
+- (void)sensitivityChanged:(UISlider *)sender {
+    (void)sender;
+    _cameraSensitivity = _sensitivitySlider.value;
+    _sensitivityText.text = [NSString stringWithFormat:@"CAMERA ×%.2f", _cameraSensitivity];
+    [[NSUserDefaults standardUserDefaults] setFloat:_cameraSensitivity
+                                            forKey:@"mhgu_touch_camera_sensitivity_v43"];
 }
 - (void)cycleOpacity:(id)sender {
     (void)sender;
@@ -718,6 +1033,7 @@ static void mhgu_style_menu(UIButton *button) {
     [_cameraButton setTitle:(_cameraSwipe ? @"CAM:SWIPE" : @"CAM:STICK") forState:UIControlStateNormal];
     _right.hidden = _controlsHidden || _cameraSwipe;
     if (_editing && !_controlsHidden) _right.hidden = NO;
+    [self applyVisibilityV44];
 }
 - (void)toggleCamera:(id)sender {
     (void)sender;
@@ -808,10 +1124,10 @@ static void mhgu_style_menu(UIButton *button) {
     _cameraPoint = p;
     // Game's right-stick camera has a ~40% dead zone. Lift small swipes
     // above that dead zone while still scaling from slow to quick drags.
-    CGFloat vx = fmin(1.0, fabs(dx) / 12.0);
-    CGFloat vy = fmin(1.0, fabs(dy) / 12.0);
-    int ax = fabs(dx) < 0.4 ? 0 : (int)lrint(copysign(32767.0 * (0.43 + 0.57 * vx), dx));
-    int ay = fabs(dy) < 0.4 ? 0 : (int)lrint(copysign(32767.0 * (0.43 + 0.57 * vy), -dy));
+    CGFloat vx = fmin(1.0, fabs(dx) * _cameraSensitivity / 12.0);
+    CGFloat vy = fmin(1.0, fabs(dy) * _cameraSensitivity / 12.0);
+    int ax = fabs(dx) < 0.4 / _cameraSensitivity ? 0 : (int)lrint(copysign(32767.0 * (0.43 + 0.57 * vx), dx));
+    int ay = fabs(dy) < 0.4 / _cameraSensitivity ? 0 : (int)lrint(copysign(32767.0 * (0.43 + 0.57 * vy), -dy));
     atomic_store_explicit(&s_swipeRx, ax, memory_order_relaxed);
     atomic_store_explicit(&s_swipeRy, ay, memory_order_relaxed);
     atomic_store_explicit(&s_lastSwipeMs, mhgu_now_ms(), memory_order_relaxed);
@@ -914,20 +1230,38 @@ static void mhgu_style_menu(UIButton *button) {
     CGFloat gutter = 5 * scale;
     CGFloat panelW = fmin(112 * scale, (w - safe.right - panelX - 12 * scale) * .47);
     CGFloat panelH = 27 * scale;
-    NSArray *panel = @[_showButton, _alphaButton, _cameraButton, _artsButton,
-                       _weaponModeButton, _lockButton, _editButton];
+    NSArray *panel = @[_showButton, _cameraButton, _artsButton,
+                       _weaponModeButton, _lockButton, _editButton, _fpsButton,
+                       _comboEdit[0], _comboEdit[1], _profileButtonV44,
+                       _editorButtonV44, _hudButtonV44];
     for (NSUInteger i = 0; i < panel.count; i++) {
         UIButton *b = [panel objectAtIndex:i];
         b.frame = CGRectMake(panelX + (i % 2) * (panelW + gutter),
                              panelY + (i / 2) * (panelH + gutter), panelW, panelH);
     }
-    _sizeMinus.frame = CGRectMake(panelX, panelY + 4 * (panelH + gutter), panelW * .73, panelH);
-    _sizePlus.frame = CGRectMake(panelX + panelW * .77, panelY + 4 * (panelH + gutter), panelW * .73, panelH);
+    CGFloat slidersY = panelY + 6 * (panelH + gutter);
+    _alphaButton.frame = CGRectMake(panelX, slidersY, panelW * .9, panelH);
+    _opacitySlider.frame = CGRectMake(panelX + panelW + gutter, slidersY, panelW, panelH);
+    _sensitivityText.frame = CGRectMake(panelX, slidersY + panelH + gutter, panelW, panelH);
+    _sensitivitySlider.frame = CGRectMake(panelX + panelW + gutter,
+                                          slidersY + panelH + gutter, panelW, panelH);
+    _sizeMinus.frame = CGRectMake(panelX, panelY + 8 * (panelH + gutter), panelW * .73, panelH);
+    _sizePlus.frame = CGRectMake(panelX + panelW * .77, panelY + 8 * (panelH + gutter), panelW * .73, panelH);
     _resetLayout.frame = CGRectMake(panelX + (panelW + gutter) * 1.55,
-                                    panelY + 4 * (panelH + gutter), panelW * .65, panelH);
+                                    panelY + 8 * (panelH + gutter), panelW * .65, panelH);
 
+    // Independently draggable combo slots; two masks can be held with either stick.
+    [self place:_combo[0] center:CGPointMake(mid - 30 * scale, topY + 64 * scale) diameter:44 * scale];
+    [self place:_combo[1] center:CGPointMake(mid + 30 * scale, topY + 64 * scale) diameter:44 * scale];
     CGFloat itemY = h - safe.bottom - 27 * scale;
-    _itemStrip.frame = CGRectMake(mid - 91 * scale, itemY - 19 * scale, 182 * scale, 38 * scale);
+    _itemStrip.frame = CGRectMake(mid - 91 * scale, itemY - 76 * scale, 182 * scale, 35 * scale);
+    CGFloat itemGapV44 = 49 * scale;
+    NSArray *itemsV44 = @[_itemPrevV44, _itemUseV44, _itemNextV44];
+    for (NSUInteger i=0; i<3; i++) {
+        UIButton *b = [itemsV44 objectAtIndex:i];
+        b.bounds = CGRectMake(0, 0, 46 * scale, 36 * scale);
+        b.center = CGPointMake(mid + ((NSInteger)i - 1) * itemGapV44, itemY);
+    }
     [self place:_fire center:CGPointMake(faceX, y - 15 * scale) diameter:72 * scale];
     [self place:_reload center:CGPointMake(faceX - 85 * scale, y + 38 * scale) diameter:48 * scale];
     [self place:_aim center:CGPointMake(faceX - 95 * scale, y - 45 * scale) diameter:49 * scale];
@@ -941,6 +1275,9 @@ static void mhgu_style_menu(UIButton *button) {
     [self applyCustomLayout];
     [self updateRangedVisibility];
     [self updateMenuVisibility];
+    [self updateEditorLayoutV44];
+    _hudLabelV44.frame = CGRectMake(safe.left + 10 * scale, safe.top + 112 * scale,
+                                  MIN(335 * scale, availW - 20 * scale), 37 * scale);
 }
 - (void)updateRangedVisibility {
     BOOL ranged = _weaponKind != 0;
@@ -952,6 +1289,7 @@ static void mhgu_style_menu(UIButton *button) {
         for (UIView *v in _controls) v.hidden = _controlsHidden ? YES : NO;
         [self updateCameraMode];
     }
+    [self applyVisibilityV44];
 }
 - (void)syncWeapon {
     uint64_t now = mhgu_now_ms();
@@ -1023,7 +1361,9 @@ static void mhgu_style_menu(UIButton *button) {
     NSArray *a = @[@(_selectedControl.center.x/w), @(_selectedControl.center.y/h),
                    @(_selectedControl.bounds.size.height/h), @(w >= h)];
     [_customLayout setObject:a forKey:name];
-    [[NSUserDefaults standardUserDefaults] setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
+    NSUserDefaults *p = [NSUserDefaults standardUserDefaults];
+    [p setObject:_customLayout forKey:[self profileStorageKeyV44:@"layout"]];
+    if (_profileV44 == 2) [p setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
 }
 - (void)toggleEdit:(id)sender {
     (void)sender;
@@ -1052,8 +1392,337 @@ static void mhgu_style_menu(UIButton *button) {
 - (void)resetLayout:(id)sender {
     (void)sender;
     [_customLayout removeAllObjects];
-    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"mhgu_touch_layout_v3"];
+    NSUserDefaults *p = [NSUserDefaults standardUserDefaults];
+    [p removeObjectForKey:[self profileStorageKeyV44:@"layout"]];
+    if (_profileV44 == 2) [p removeObjectForKey:@"mhgu_touch_layout_v3"];
     [self setNeedsLayout];
+}
+// --------------------------------------------------------------
+// MHGU V4.4: isolated UIKit control profiles and workshop
+- (NSString *)profileStorageKeyV44:(NSString *)kind {
+    return [NSString stringWithFormat:@"mhgu_touch_%@_profile_v44_%ld", kind, (long)_profileV44];
+}
+- (void)saveProfileV44 {
+    NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
+    [prefs setObject:_customLayout forKey:[self profileStorageKeyV44:@"layout"]];
+    [prefs setObject:[[_hiddenV44 allObjects] sortedArrayUsingSelector:@selector(compare:)]
+             forKey:[self profileStorageKeyV44:@"hidden"]];
+    [prefs setObject:_stylesV44 forKey:[self profileStorageKeyV44:@"styles"]];
+    if (_profileV44 == 2) [prefs setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
+}
+- (void)updateProfileTitleV44 {
+    NSArray *names = @[@"MELEE", @"RANGED", @"CUSTOM"];
+    [_profileButtonV44 setTitle:[NSString stringWithFormat:@"PROFILE:%@", [names objectAtIndex:_profileV44]]
+                     forState:UIControlStateNormal];
+}
+- (void)cycleProfileV44:(id)sender {
+    (void)sender;
+    if (_editing) [self toggleEdit:nil];
+    [self resetAll];
+    [self saveProfileV44];
+    _profileV44 = (_profileV44 + 1) % 3;
+    [[NSUserDefaults standardUserDefaults] setInteger:_profileV44 forKey:@"mhgu_touch_active_profile_v44"];
+    NSDictionary *layout = [[NSUserDefaults standardUserDefaults] dictionaryForKey:[self profileStorageKeyV44:@"layout"]];
+    if (!layout && _profileV44 == 2)
+        layout = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"mhgu_touch_layout_v3"];
+    [_customLayout release];
+    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:layout ?: @{}];
+    NSArray *hidden = [[NSUserDefaults standardUserDefaults] arrayForKey:[self profileStorageKeyV44:@"hidden"]];
+    [_hiddenV44 release];
+    _hiddenV44 = [[NSMutableSet alloc] initWithArray:hidden ?: @[@"ITEM_BAR"]];
+    NSDictionary *styles = [[NSUserDefaults standardUserDefaults] dictionaryForKey:[self profileStorageKeyV44:@"styles"]];
+    [_stylesV44 release];
+    _stylesV44 = [[NSMutableDictionary alloc] initWithDictionary:styles ?: @{}];
+    [self updateProfileTitleV44];
+    [self applyStylesV44];
+    [self setNeedsLayout];
+    [self layoutIfNeeded];
+    [self updateEditorRowsV44];
+}
+- (void)applyVisibilityV44 {
+    if (!_namedControls) return;
+    BOOL ranged = _weaponKind != 0;
+    for (NSString *key in _namedControls) {
+        UIView *v = [_namedControls objectForKey:key];
+        BOOL modeHidden = NO;
+        if (v == _right) modeHidden = _cameraSwipe && !_editing;
+        else if (v == _fire || v == _reload || v == _aim || v == _special ||
+                 v == _ammoUp || v == _ammoDown) modeHidden = !ranged && !_editing;
+        else if (v == _button[BTN_A] || v == _button[BTN_B] ||
+                 v == _button[BTN_X] || v == _button[BTN_Y]) modeHidden = ranged && !_editing;
+        // The editor can still find otherwise-hidden controls while repositioning them.
+        v.hidden = _controlsHidden || modeHidden || (!_editing && [_hiddenV44 containsObject:key]);
+    }
+}
+- (UIColor *)accentForColorV44:(NSInteger)index {
+    switch (index) {
+    case 1: return [UIColor colorWithRed:.85 green:.33 blue:.27 alpha:1.0]; // Rathalos ruby
+    case 2: return [UIColor colorWithRed:.27 green:.72 blue:.76 alpha:1.0]; // Lagiacrus teal
+    case 3: return [UIColor colorWithRed:.56 green:.76 blue:.40 alpha:1.0]; // Forest moss
+    case 4: return [UIColor colorWithRed:.77 green:.64 blue:.93 alpha:1.0]; // Mist violet
+    case 5: return [UIColor colorWithRed:.93 green:.90 blue:.79 alpha:1.0]; // Parchment
+    default: return nil; // original gold
+    }
+}
+- (NSString *)defaultCaptionV44:(NSString *)key {
+    NSDictionary *symbols = @{@"A":@"✦", @"X":@"✧", @"B":@"↶", @"Y":@"◇",
+                             @"AMMO_UP":@"AMMO+", @"AMMO_DOWN":@"AMMO−",
+                             @"ITEM_PREV":@"◀ ITEM", @"ITEM_NEXT":@"ITEM ▶",
+                             @"ITEM_USE":@"✦ USE", @"ITEM_BAR":@"◀  ITEM  ✦  USE  ▶",
+                             @"CAMERA_STICK":@"CAM", @"COMBO_1":@"A+B", @"COMBO_2":@"R+X"};
+    NSString *label = [symbols objectForKey:key];
+    if ([key isEqualToString:@"COMBO_1"] || [key isEqualToString:@"COMBO_2"]) {
+        NSUInteger slot = [key isEqualToString:@"COMBO_2"] ? 1 : 0;
+        label = [[NSUserDefaults standardUserDefaults] stringForKey:
+                 [NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot]] ?: label;
+    }
+    return label ?: key;
+}
+- (void)applyStylesV44 {
+    for (NSString *key in _namedControls) {
+        UIView *v = [_namedControls objectForKey:key];
+        NSDictionary *style = [_stylesV44 objectForKey:key];
+        if (![style isKindOfClass:[NSDictionary class]]) style = nil;
+        NSString *caption = [style objectForKey:@"caption"] ?: [self defaultCaptionV44:key];
+        if ([v respondsToSelector:@selector(setCaption:)]) {
+            if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v setCaption:caption];
+            else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v setCaption:caption];
+            else if ([v isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)v setCaption:caption];
+        } else if ([v isKindOfClass:[UIButton class]]) {
+            [(UIButton *)v setTitle:caption forState:UIControlStateNormal];
+        }
+        UIColor *accent = [self accentForColorV44:[[style objectForKey:@"color"] integerValue]];
+        if ([v isKindOfClass:[MHGUTouchButton class]]) {
+            [(MHGUTouchButton *)v setAccentV44:accent];
+        } else {
+            v.layer.borderColor = (accent ?: [hudGold() colorWithAlphaComponent:.9]).CGColor;
+        }
+    }
+    [self updateOpacity];
+}
+- (void)updateEditorLayoutV44 {
+    if (!_editorPanelV44) return;
+    CGRect safe = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+    if (CGRectIsEmpty(safe)) safe = self.bounds;
+    CGFloat width = MIN(560.0, MAX(280.0, safe.size.width - 20.0));
+    CGFloat height = MIN(330.0, MAX(190.0, safe.size.height - 16.0));
+    _editorPanelV44.frame = CGRectMake(CGRectGetMidX(safe)-width/2,
+                                      CGRectGetMidY(safe)-height/2, width, height);
+    UIView *header = [_editorPanelV44 viewWithTag:44001];
+    UIView *close = [_editorPanelV44 viewWithTag:44002];
+    header.frame = CGRectMake(12, 6, width-112, 32);
+    close.frame = CGRectMake(width-91, 5, 80, 33);
+    _editorScrollV44.frame = CGRectMake(9, 43, width-18, height-51);
+    [self updateEditorRowsV44];
+}
+- (void)updateEditorRowsV44 {
+    if (!_editorScrollV44) return;
+    for (UIView *v in [[_editorScrollV44.subviews copy] autorelease]) [v removeFromSuperview];
+    [_editorNamesV44 release];
+    _editorNamesV44 = [[[_namedControls allKeys] sortedArrayUsingSelector:@selector(compare:)] retain];
+    CGFloat w = _editorScrollV44.bounds.size.width;
+    CGFloat rowHeight = 42;
+    for (NSUInteger i=0; i<_editorNamesV44.count; i++) {
+        NSString *name = [_editorNamesV44 objectAtIndex:i];
+        BOOL visible = ![_hiddenV44 containsObject:name];
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+        b.frame = CGRectMake(2, i * rowHeight + 3, MAX(100, w-76), rowHeight-6);
+        b.tag = (NSInteger)i;
+        mhgu_style_menu(b);
+        b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        [b setTitle:[NSString stringWithFormat:@"  ✎  %@", name] forState:UIControlStateNormal];
+        [b addTarget:self action:@selector(editAppearanceV44:) forControlEvents:UIControlEventTouchUpInside];
+        [_editorScrollV44 addSubview:b];
+        UISwitch *sw = [[[UISwitch alloc] initWithFrame:CGRectZero] autorelease];
+        sw.tag = (NSInteger)i;
+        sw.on = visible;
+        sw.onTintColor = hudGold();
+        sw.center = CGPointMake(w - 30, i * rowHeight + rowHeight / 2);
+        [sw addTarget:self action:@selector(changeVisibilityV44:)
+              forControlEvents:UIControlEventValueChanged];
+        [_editorScrollV44 addSubview:sw];
+    }
+    _editorScrollV44.contentSize = CGSizeMake(w, _editorNamesV44.count * rowHeight);
+}
+- (void)toggleEditorV44:(id)sender {
+    (void)sender;
+    if (_editing) [self toggleEdit:nil];
+    _editorPanelV44.hidden = !_editorPanelV44.hidden;
+    if (!_editorPanelV44.hidden) {
+        [self updateEditorLayoutV44];
+        [self bringSubviewToFront:_editorPanelV44];
+    }
+}
+- (void)closeEditorV44:(id)sender { (void)sender; _editorPanelV44.hidden = YES; }
+- (void)changeVisibilityV44:(UISwitch *)sender {
+    NSUInteger index = (NSUInteger)sender.tag;
+    if (index >= _editorNamesV44.count) return;
+    NSString *key = [_editorNamesV44 objectAtIndex:index];
+    UIView *v = [_namedControls objectForKey:key];
+    if (sender.isOn) [_hiddenV44 removeObject:key];
+    else {
+        [_hiddenV44 addObject:key];
+        if ([v respondsToSelector:@selector(resetInput)]) {
+            if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v resetInput];
+            else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v resetInput];
+            else if ([v isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)v resetInput];
+        }
+        if (v == _itemPrevV44 || v == _itemNextV44) [self itemStopV44:(UIButton *)v];
+    }
+    [self applyVisibilityV44];
+    [self saveProfileV44];
+}
+- (void)setAppearanceValueV44:(id)value forPart:(NSString *)part key:(NSString *)key {
+    NSMutableDictionary *sty = [NSMutableDictionary dictionaryWithDictionary:[_stylesV44 objectForKey:key] ?: @{}];
+    if (value) [sty setObject:value forKey:part];
+    else [sty removeObjectForKey:part];
+    if (sty.count) [_stylesV44 setObject:sty forKey:key];
+    else [_stylesV44 removeObjectForKey:key];
+    [self applyStylesV44];
+    [self saveProfileV44];
+}
+- (void)editAppearanceV44:(UIButton *)sender {
+    if ((NSUInteger)sender.tag >= _editorNamesV44.count) return;
+    NSString *key = [_editorNamesV44 objectAtIndex:(NSUInteger)sender.tag];
+    UIViewController *vc = self.window.rootViewController;
+    if (!vc) return;
+    UIAlertController *menu = [UIAlertController alertControllerWithTitle:
+        [NSString stringWithFormat:@"⚒ %@  •  Workshop", key]
+        message:@"Rename a button, choose a color, or set its own opacity (independent of the main slider)."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Rename" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        UIAlertController *input = [UIAlertController alertControllerWithTitle:@"Button inscription"
+            message:@"Enter up to 14 characters. This changes the label only, not its game input."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [input addTextFieldWithConfigurationHandler:^(UITextField *f) {
+            f.text = [[_stylesV44 objectForKey:key] objectForKey:@"caption"] ?: [self defaultCaptionV44:key];
+            f.placeholder = key;
+        }];
+        [input addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [input addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+            (void)act;
+            NSString *v = [[[input.textFields firstObject] text] stringByTrimmingCharactersInSet:
+                           [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (v.length > 0) [self setAppearanceValueV44:[v substringToIndex:MIN((NSUInteger)14,v.length)]
+                                                       forPart:@"caption" key:key];
+        }]];
+        [vc presentViewController:input animated:YES completion:nil];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Accent color" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        UIAlertController *colors = [UIAlertController alertControllerWithTitle:@"Hunter's pigments"
+                          message:@"Pick a border/accent color" preferredStyle:UIAlertControllerStyleAlert];
+        NSArray *names = @[@"Original gold", @"Rathalos ruby", @"Lagiacrus teal", @"Forest moss", @"Mist violet", @"Parchment"];
+        for (NSUInteger i=0; i<names.count; i++) {
+            [colors addAction:[UIAlertAction actionWithTitle:[names objectAtIndex:i]
+                style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+                    (void)act;
+                    [self setAppearanceValueV44:@(i) forPart:@"color" key:key];
+                }]];
+        }
+        [colors addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [vc presentViewController:colors animated:YES completion:nil];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Individual opacity" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        UIAlertController *input = [UIAlertController alertControllerWithTitle:@"Individual opacity"
+              message:@"Enter a number from 25 to 100 percent. The global slider still applies."
+              preferredStyle:UIAlertControllerStyleAlert];
+        [input addTextFieldWithConfigurationHandler:^(UITextField *f) {
+            f.keyboardType = UIKeyboardTypeDecimalPad;
+            NSNumber *old = [[_stylesV44 objectForKey:key] objectForKey:@"alpha"];
+            f.text = [NSString stringWithFormat:@"%.0f", old ? [old doubleValue] * 100 : 100.0];
+        }];
+        [input addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [input addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
+            (void)act;
+            float percent = [[[input.textFields firstObject] text] floatValue];
+            if (isfinite(percent) && percent >= 25 && percent <= 100)
+                [self setAppearanceValueV44:@(percent / 100.0f) forPart:@"alpha" key:key];
+        }]];
+        [vc presentViewController:input animated:YES completion:nil];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Reset appearance" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        (void)a;
+        [_stylesV44 removeObjectForKey:key];
+        [self applyStylesV44];
+        [self saveProfileV44];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+    [vc presentViewController:menu animated:YES completion:nil];
+}
+// Taps advance immediately. Holding repeats at a controlled rate; timers are
+// cancelled on touch end, backgrounding, hiding controls, or profile switching.
+- (void)startItemRepeatV44:(NSInteger)index {
+    if (index < 0 || index > 1 || _repeatHeldV44[index]) return;
+    _repeatHeldV44[index] = YES;
+    _repeatStartV44[index] = _repeatLastV44[index] = mhgu_now_ms();
+    queue_steps(NO, index == 0 ? -1 : 1);
+    _repeatTimerV44[index] = [[NSTimer scheduledTimerWithTimeInterval:.05 target:self
+                          selector:@selector(repeatItemsV44:) userInfo:@(index) repeats:YES] retain];
+}
+- (void)itemPrevDownV44:(id)sender { (void)sender; [self startItemRepeatV44:0]; }
+- (void)itemNextDownV44:(id)sender { (void)sender; [self startItemRepeatV44:1]; }
+- (void)itemUseDownV44:(id)sender { (void)sender; pulse_button_mask(UINT64_C(1) << BTN_Y, 110); }
+- (void)repeatItemsV44:(NSTimer *)timer {
+    NSInteger index = [[timer userInfo] integerValue];
+    if (index < 0 || index > 1 || !_repeatHeldV44[index]) return;
+    uint64_t now = mhgu_now_ms();
+    if (now - _repeatStartV44[index] >= 380 && now - _repeatLastV44[index] >= 155) {
+        queue_steps(NO, index == 0 ? -1 : 1);
+        _repeatLastV44[index] = now;
+    }
+}
+- (void)itemStopV44:(UIButton *)sender {
+    NSInteger index = sender == _itemPrevV44 ? 0 : 1;
+    _repeatHeldV44[index] = NO;
+    [_repeatTimerV44[index] invalidate];
+    [_repeatTimerV44[index] release];
+    _repeatTimerV44[index] = nil;
+}
+- (void)toggleHudV44:(id)sender {
+    (void)sender;
+    _hudOnV44 = !_hudOnV44;
+    _hudLabelV44.hidden = !_hudOnV44;
+    _hudPrevMsV44 = 0;
+    [_hudButtonV44 setTitle:(_hudOnV44 ? @"HUD:ON" : @"HUD:OFF") forState:UIControlStateNormal];
+    [[NSUserDefaults standardUserDefaults] setBool:_hudOnV44 forKey:@"mhgu_touch_hud_v44"];
+}
+- (void)updateHudV44:(NSTimer *)timer {
+    (void)timer;
+    if (!_hudOnV44 || !atomic_load_explicit(&s_iosForeground, memory_order_acquire)) return;
+    extern volatile uint64_t g_present_count;
+    uint64_t now = mhgu_now_ms();
+    uint64_t frame = __atomic_load_n(&g_present_count, __ATOMIC_RELAXED);
+    double fps = 0;
+    if (_hudPrevMsV44 && now > _hudPrevMsV44 && frame >= _hudPrevFrameV44)
+        fps = (double)(frame - _hudPrevFrameV44) * 1000.0 / (double)(now - _hudPrevMsV44);
+    _hudPrevMsV44 = now;
+    _hudPrevFrameV44 = frame;
+    uint64_t buttons = atomic_load_explicit(&s_buttons, memory_order_relaxed);
+    for (int i=0; i<16; i++)
+        if (now < atomic_load_explicit(&s_pulseUntilMs[i], memory_order_relaxed))
+            buttons |= UINT64_C(1) << i;
+    static const int bits[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_L, BTN_R, BTN_ZL, BTN_ZR,
+                               BTN_PLUS, BTN_MINUS, BTN_UP, BTN_DOWN};
+    NSArray *names = @[@"A", @"B", @"X", @"Y", @"L", @"R", @"ZL", @"ZR", @"+", @"−", @"▲", @"▼"];
+    NSMutableArray *held = [NSMutableArray array];
+    for (NSUInteger i=0; i<sizeof(bits)/sizeof(bits[0]); i++)
+        if (buttons & (UINT64_C(1) << bits[i])) [held addObject:[names objectAtIndex:i]];
+    NSString *pressed = held.count ? [held componentsJoinedByString:@" "] : @"—";
+    if (pressed.length > 21) pressed = [[pressed substringToIndex:21] stringByAppendingString:@"…"];
+    float mx = atomic_load_explicit(&s_lx, memory_order_relaxed) / 32767.0f;
+    float my = atomic_load_explicit(&s_ly, memory_order_relaxed) / 32767.0f;
+    float cx = atomic_load_explicit(&s_rx, memory_order_relaxed) / 32767.0f;
+    float cy = atomic_load_explicit(&s_ry, memory_order_relaxed) / 32767.0f;
+    if (now - atomic_load_explicit(&s_lastSwipeMs, memory_order_relaxed) < 65) {
+        cx += atomic_load_explicit(&s_swipeRx, memory_order_relaxed) / 32767.0f;
+        cy += atomic_load_explicit(&s_swipeRy, memory_order_relaxed) / 32767.0f;
+    }
+    _hudLabelV44.text = [NSString stringWithFormat:
+        @"  FPS %.1f / %d target   •   BTN %@\n  MOVE %.1f,%.1f  CAM %.1f,%.1f",
+        fps, mhgu_touch_fps_get(), pressed, mx, my, cx, cy];
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -1062,6 +1731,17 @@ static void mhgu_style_menu(UIButton *button) {
     [_namedControls release];
     [_customLayout release];
     [_controls release];
+    [_hiddenV44 release];
+    [_stylesV44 release];
+    [_editorNamesV44 release];
+    [_editorScrollV44 release];
+    [_editorPanelV44 release];
+    [_hudTimerV44 invalidate];
+    [_hudTimerV44 release];
+    [_hudLabelV44 release];
+    [_opacitySlider release];
+    [_sensitivitySlider release];
+    [_sensitivityText release];
     [super dealloc];
 }
 @end
@@ -1084,6 +1764,8 @@ void mhgu_touch_install(SDL_Window *window) {
         NSLog(@"[MHGU Touch] SDL UIKit window unavailable; overlay not installed");
         return;
     }
+    uiWindow.multipleTouchEnabled = YES;
+    uiWindow.exclusiveTouch = NO;
     s_overlay = [[MHGUTouchRoot alloc] initWithFrame:uiWindow.bounds];
     [uiWindow addSubview:s_overlay];
     [s_overlay setNeedsLayout];

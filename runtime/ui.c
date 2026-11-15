@@ -72,6 +72,13 @@ static void set_fullscreen(bool on) {
 }
 
 void ui_init(void) {
+#if defined(__APPLE__)
+    // MHGU_IOS_NO_SYNTHETIC_MOUSE_V42: the UIKit controller already delivers
+    // finger input to the game. SDL's touch->mouse translation otherwise
+    // injects extra A presses via the legacy mouse handler.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO)) FATAL("SDL_Init: %s\n", SDL_GetError());
     config_load();
     // the controller in the background (ini BackgroundInput): SDL's hint, set before its gamepads start (some of its

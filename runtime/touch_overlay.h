@@ -8,6 +8,9 @@ extern "C" {
 void mhgu_touch_install(struct SDL_Window *window);
 void mhgu_touch_clear(void);
 void mhgu_touch_snapshot(uint64_t *buttons, int *lx, int *ly, int *rx, int *ry);
+// MHGU_IOS_TOUCH_FPS_V42: optional in-game FPS target control (30..120 presets).
+void mhgu_touch_fps_set(int fps);
+int mhgu_touch_fps_get(void);
 // Runtime side: independent of UIKit; MHGU Switch v1.4.0 offsets only.
 void mhgu_touch_runtime_init(void);
 int mhgu_touch_detect_weapon(int *drawn, int *bow_type);
