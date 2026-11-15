@@ -261,9 +261,18 @@ static void mhgu_style_menu(UIButton *button) {
     }
 }
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
-    [self touchesEnded:touches withEvent:event];
+    (void)event;
+    BOOL wasDown = _active.count > 0;
+    [_active minusSet:touches];
+    if (wasDown && _active.count == 0) {
+        set_button_mask(_mask, NO);
+        [self setPressedStyle:NO];
+    }
 }
 - (void)setMask:(uint64_t)mask {
+    // MHGU_IOS_MULTITOUCH_DIAGNOSTICS_V442: weapon-state polls must not drop
+    // a physically held attack when its mapping is unchanged.
+    if (_mask == mask) return;
     [self resetInput];
     _mask = mask;
 }
@@ -379,6 +388,11 @@ static void mhgu_style_menu(UIButton *button) {
     [self touchesEnded:touches withEvent:event];
 }
 - (void)resetInput {
+    if (_left && _tracked && _tracked.phase != UITouchPhaseEnded &&
+        _tracked.phase != UITouchPhaseCancelled) {
+        NSLog(@"[MHGU Touch] MOVE force-reset while finger is still active (phase=%ld)",
+              (long)_tracked.phase);
+    }
     [_tracked release];
     _tracked = nil;
     [self setPosition:CGPointMake(self.bounds.size.width / 2, self.bounds.size.height / 2)];
@@ -518,6 +532,7 @@ static void mhgu_style_menu(UIButton *button) {
     NSTimer *_hudTimerV44;
     BOOL _hudOnV44;
     uint64_t _hudPrevFrameV44, _hudPrevMsV44;
+    NSMutableDictionary *_touchOwnersV441; // MHGU_IOS_TOUCH_CENTRAL_ROUTER_V441
 }
 - (void)resetAll;
 - (void)syncWeapon;
@@ -541,8 +556,16 @@ static void mhgu_style_menu(UIButton *button) {
             return hit;
         return self;
     }
-    // Empty screen is a relative camera surface; buttons/sticks retain
-    // ownership of any fingers which begin on them.
+    // V4.4.1: one UIKit view receives every gameplay finger, even when a
+    // second finger presses a different button during joystick/camera motion.
+    // UIKit settings, scrollviews and dialogs keep their normal hit testing.
+    if ([hit isKindOfClass:[MHGUTouchButton class]] ||
+        [hit isKindOfClass:[MHGUTouchStick class]] ||
+        [hit isKindOfClass:[MHGUTouchItemStrip class]] ||
+        hit == _itemPrevV44 || hit == _itemUseV44 || hit == _itemNextV44)
+        return self;
+    // Empty screen is a relative camera surface; gameplay touches are
+    // routed below by their original finger identity, not UIKit view focus.
     if (hit == self)
         return (!_controlsHidden && _cameraSwipe && point.x > self.bounds.size.width * 0.25) ? self : nil;
     return hit;
@@ -575,6 +598,7 @@ static void mhgu_style_menu(UIButton *button) {
     self.exclusiveTouch = NO;
     self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _controls = [[NSMutableArray alloc] init];
+    _touchOwnersV441 = [[NSMutableDictionary alloc] init];
     _namedControls = [[NSMutableDictionary alloc] init];
     NSUserDefaults *profilePrefsV44 = [NSUserDefaults standardUserDefaults];
     _profileV44 = [profilePrefsV44 objectForKey:@"mhgu_touch_active_profile_v44"] ?
@@ -865,6 +889,8 @@ static void mhgu_style_menu(UIButton *button) {
     return self;
 }
 - (void)resetAll {
+    // Forget old UITouch pointers on suspension, profile changes or hide.
+    [_touchOwnersV441 removeAllObjects];
     for (int i=0; i<2; i++) {
         _repeatHeldV44[i] = NO;
         [_repeatTimerV44[i] invalidate];
@@ -1087,8 +1113,40 @@ static void mhgu_style_menu(UIButton *button) {
         }
         return;
     }
+    // Independent, persistent ownership: joystick/button/camera fingers can
+    // overlap in time without UIKit cancelling a sibling gameplay view.
+    // The topmost visible control wins at touch-down, never mid-drag.
+    NSMutableArray *emptyTouchesV441 = [NSMutableArray array];
+    for (UITouch *finger in touches) {
+        CGPoint p = [finger locationInView:self];
+        UIView *target = nil;
+        for (UIView *v in [_controls reverseObjectEnumerator]) {
+            if (v.hidden || !v.userInteractionEnabled || v.alpha < .03) continue;
+            BOOL native = [v isKindOfClass:[MHGUTouchButton class]] ||
+                          [v isKindOfClass:[MHGUTouchStick class]] ||
+                          [v isKindOfClass:[MHGUTouchItemStrip class]];
+            BOOL item = v == _itemPrevV44 || v == _itemUseV44 || v == _itemNextV44;
+            if ((native || item) && CGRectContainsPoint(v.frame, p)) { target = v; break; }
+        }
+        if (target) {
+            [_touchOwnersV441 setObject:target forKey:[NSValue valueWithNonretainedObject:finger]];
+            if ([target isKindOfClass:[UIButton class]]) {
+                [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchDown];
+            } else {
+                [target touchesBegan:[NSSet setWithObject:finger] withEvent:event];
+            }
+        } else {
+            [emptyTouchesV441 addObject:finger];
+        }
+    }
+    if (_touchOwnersV441.count >= 2 && _touchOwnersV441.count <= 4) {
+        NSLog(@"[MHGU Touch] simultaneously routed %lu control fingers, MOVE=%d,%d",
+              (unsigned long)_touchOwnersV441.count,
+              atomic_load_explicit(&s_lx, memory_order_relaxed),
+              atomic_load_explicit(&s_ly, memory_order_relaxed));
+    }
     if (_controlsHidden || !_cameraSwipe || _cameraFinger) return;
-    UITouch *finger = [touches anyObject];
+    UITouch *finger = [emptyTouchesV441 firstObject];
     if (!finger) return;
     if (finger.tapCount >= 2) {
         // A double tap in the open camera area taps L to recenter/target.
@@ -1117,6 +1175,11 @@ static void mhgu_style_menu(UIButton *button) {
         }
         return;
     }
+    for (UITouch *finger in touches) {
+        UIView *target = [_touchOwnersV441 objectForKey:[NSValue valueWithNonretainedObject:finger]];
+        if (target && ![target isKindOfClass:[UIButton class]])
+            [target touchesMoved:[NSSet setWithObject:finger] withEvent:event];
+    }
     if (!_cameraFinger || ![touches containsObject:_cameraFinger]) return;
     CGPoint p = [_cameraFinger locationInView:self];
     mhgu_touch_camera_drag();
@@ -1143,6 +1206,17 @@ static void mhgu_style_menu(UIButton *button) {
         [_editFinger release]; _editFinger = nil;
         return;
     }
+    for (UITouch *finger in touches) {
+        NSValue *key = [NSValue valueWithNonretainedObject:finger];
+        UIView *target = [_touchOwnersV441 objectForKey:key];
+        if (!target) continue;
+        if ([target isKindOfClass:[UIButton class]]) {
+            [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
+        } else {
+            [target touchesEnded:[NSSet setWithObject:finger] withEvent:event];
+        }
+        [_touchOwnersV441 removeObjectForKey:key];
+    }
     if (_cameraFinger && [touches containsObject:_cameraFinger]) {
         [_cameraFinger release]; _cameraFinger = nil;
         atomic_store_explicit(&s_lastSwipeMs, 0, memory_order_relaxed);
@@ -1151,6 +1225,22 @@ static void mhgu_style_menu(UIButton *button) {
     }
 }
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
+    if (_editing) {
+        [self touchesEnded:touches withEvent:event];
+        return;
+    }
+    for (UITouch *finger in touches) {
+        NSValue *key = [NSValue valueWithNonretainedObject:finger];
+        UIView *target = [_touchOwnersV441 objectForKey:key];
+        if (!target) continue;
+        if ([target isKindOfClass:[UIButton class]]) {
+            [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchCancel];
+        } else {
+            [target touchesCancelled:[NSSet setWithObject:finger] withEvent:event];
+        }
+        [_touchOwnersV441 removeObjectForKey:key];
+    }
+    // End the camera pointer without generating a gameplay button press.
     [self touchesEnded:touches withEvent:event];
 }
 - (void)controllerChanged:(NSNotification *)notification {
@@ -1721,14 +1811,16 @@ static void mhgu_style_menu(UIButton *button) {
         cy += atomic_load_explicit(&s_swipeRy, memory_order_relaxed) / 32767.0f;
     }
     _hudLabelV44.text = [NSString stringWithFormat:
-        @"  FPS %.1f / %d target   •   BTN %@\n  MOVE %.1f,%.1f  CAM %.1f,%.1f",
-        fps, mhgu_touch_fps_get(), pressed, mx, my, cx, cy];
+        @"  FPS %.1f / %d target   •   BTN %@\n  MOVE %.1f,%.1f  CAM %.1f,%.1f  F:%lu",
+        fps, mhgu_touch_fps_get(), pressed, mx, my, cx, cy,
+        (unsigned long)_touchOwnersV441.count + (_cameraFinger ? 1u : 0u)];
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self resetAll];
     [_editFinger release];
     [_namedControls release];
+    [_touchOwnersV441 release];
     [_customLayout release];
     [_controls release];
     [_hiddenV44 release];
