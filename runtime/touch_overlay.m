@@ -29,6 +29,10 @@ static atomic_uint_fast64_t s_pulseUntilMs[16];
 static atomic_int s_lx, s_ly, s_rx, s_ry;
 static atomic_int s_swipeRx, s_swipeRy;
 static atomic_uint_fast64_t s_lastSwipeMs, s_centerCameraUntilMs;
+static atomic_bool s_iosForeground = ATOMIC_VAR_INIT(1);
+int mhgu_ios_is_foreground(void) {
+    return atomic_load_explicit(&s_iosForeground, memory_order_acquire) ? 1 : 0;
+}
 
 static uint64_t mhgu_now_ms(void) {
     return (uint64_t)(CACurrentMediaTime() * 1000.0);
@@ -118,11 +122,28 @@ void mhgu_touch_clear(void) {
     atomic_store_explicit(&s_ry, 0, memory_order_relaxed);
 }
 
+// gu-native-inspired: parchment/bronze/charcoal/gold palette, rendered with UIKit.
+// This is original iOS UI code; the Android renderer is not linked into iOS.
 static UIColor *hudGold(void) {
-    return [UIColor colorWithRed:0.98 green:0.81 blue:0.48 alpha:1.0];
+    return [UIColor colorWithRed:222.0/255 green:186.0/255 blue:96.0/255 alpha:1.0];
+}
+static UIColor *hudCream(void) {
+    return [UIColor colorWithRed:244.0/255 green:232.0/255 blue:200.0/255 alpha:1.0];
 }
 static UIColor *hudBackground(void) {
-    return [UIColor colorWithRed:0.07 green:0.11 blue:0.15 alpha:0.85];
+    return [UIColor colorWithRed:28.0/255 green:20.0/255 blue:15.0/255 alpha:0.87];
+}
+static UIColor *hudPressed(void) {
+    return [UIColor colorWithRed:92.0/255 green:62.0/255 blue:22.0/255 alpha:0.96];
+}
+static void mhgu_style_menu(UIButton *button) {
+    button.backgroundColor = hudBackground();
+    button.layer.cornerRadius = 9.0;
+    button.layer.borderWidth = 1.1;
+    button.layer.borderColor = [hudGold() colorWithAlphaComponent:0.8].CGColor;
+    button.titleLabel.font = [UIFont fontWithName:@"Georgia-Bold" size:10] ?: [UIFont boldSystemFontOfSize:10];
+    [button setTitleColor:hudCream() forState:UIControlStateNormal];
+    [button setTitleColor:[UIColor colorWithRed:1 green:.86 blue:.42 alpha:1] forState:UIControlStateHighlighted];
 }
 
 @interface MHGUTouchButton : UIView {
@@ -130,6 +151,8 @@ static UIColor *hudBackground(void) {
     uint64_t _pressStartMs;
     NSMutableSet *_active;
     UILabel *_caption;
+    UILabel *_badge;
+    CALayer *_innerRing;
 }
 - (id)initWithLabel:(NSString *)label mask:(uint64_t)mask;
 - (void)setMask:(uint64_t)mask;
@@ -144,30 +167,60 @@ static UIColor *hudBackground(void) {
     self.multipleTouchEnabled = YES;
     self.opaque = NO;
     self.backgroundColor = hudBackground();
-    self.layer.borderColor = [hudGold() colorWithAlphaComponent:0.80].CGColor;
-    self.layer.borderWidth = 1.4;
+    self.layer.borderColor = [hudGold() colorWithAlphaComponent:.95].CGColor;
+    self.layer.borderWidth = 2.1;
+    _innerRing = [[CALayer alloc] init];
+    _innerRing.borderColor = [[UIColor colorWithRed:112.0/255 green:76.0/255 blue:34.0/255 alpha:.90] CGColor];
+    _innerRing.borderWidth = 1.7;
+    [self.layer addSublayer:_innerRing];
     _caption = [[UILabel alloc] initWithFrame:self.bounds];
     _caption.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _caption.backgroundColor = [UIColor clearColor];
     _caption.textAlignment = NSTextAlignmentCenter;
-    _caption.text = label;
+    // Symbol plus a tiny original Switch letter, like gu-native's ink-and-badge controls.
+    NSDictionary *symbols = @{@"A":@"✦", @"X":@"✧", @"B":@"↶", @"Y":@"◇"};
+    NSString *symbol = [symbols objectForKey:label];
+    _caption.text = symbol ?: label;
+    if (symbol) {
+        _badge = [[UILabel alloc] initWithFrame:CGRectZero];
+        _badge.text = label;
+        _badge.textAlignment = NSTextAlignmentCenter;
+        _badge.backgroundColor = [UIColor colorWithRed:.08 green:.05 blue:.035 alpha:.98];
+        _badge.textColor = hudCream();
+        _badge.layer.borderColor = hudGold().CGColor;
+        _badge.layer.borderWidth = 1.0;
+        _badge.userInteractionEnabled = NO;
+        [self addSubview:_badge];
+    }
     _caption.adjustsFontSizeToFitWidth = YES;
     _caption.minimumScaleFactor = 0.6;
-    _caption.textColor = [UIColor whiteColor];
-    _caption.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    _caption.textColor = hudCream();
+    _caption.font = [UIFont fontWithName:@"Georgia-Bold" size:18] ?: [UIFont boldSystemFontOfSize:18];
     _caption.userInteractionEnabled = NO;
     [self addSubview:_caption];
     return self;
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
-    self.layer.cornerRadius = MIN(self.bounds.size.width, self.bounds.size.height) * 0.40;
-    _caption.font = [UIFont systemFontOfSize:MIN(18, self.bounds.size.height * 0.42)
-                                     weight:UIFontWeightSemibold];
+    CGFloat d = MIN(self.bounds.size.width, self.bounds.size.height);
+    self.layer.cornerRadius = d * 0.5;
+    _innerRing.frame = CGRectInset(self.bounds, d * .09, d * .09);
+    _innerRing.cornerRadius = d * .41;
+    _caption.font = [UIFont fontWithName:@"Georgia-Bold" size:MIN(22, d * .44)]
+                    ?: [UIFont boldSystemFontOfSize:MIN(22, d * .44)];
+    if (_badge) {
+        CGFloat bd = MAX(14, MIN(22, d * .32));
+        _badge.frame = CGRectMake(d * .61, d * .02, bd, bd);
+        _badge.layer.cornerRadius = bd * .5;
+        _badge.layer.masksToBounds = YES;
+        _badge.font = [UIFont boldSystemFontOfSize:MAX(9, bd * .58)];
+    }
 }
 - (void)setPressedStyle:(BOOL)pressed {
-    self.backgroundColor = pressed ? [UIColor colorWithRed:0.49 green:0.36 blue:0.17 alpha:0.92] : hudBackground();
-    self.layer.borderWidth = pressed ? 2.4 : 1.4;
+    self.backgroundColor = pressed ? hudPressed() : hudBackground();
+    self.layer.borderColor = (pressed ? [UIColor colorWithRed:1 green:.84 blue:.36 alpha:1] : hudGold()).CGColor;
+    self.layer.borderWidth = pressed ? 2.8 : 2.1;
+    _innerRing.borderColor = (pressed ? hudGold() : [hudGold() colorWithAlphaComponent:.46]).CGColor;
 }
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
@@ -212,6 +265,8 @@ static UIColor *hudBackground(void) {
     [self resetInput];
     [_active release];
     [_caption release];
+    [_badge release];
+    [_innerRing release];
     [super dealloc];
 }
 @end
@@ -232,17 +287,17 @@ static UIColor *hudBackground(void) {
     _left = left;
     self.opaque = NO;
     self.backgroundColor = hudBackground();
-    self.layer.borderWidth = 1.5;
-    self.layer.borderColor = [hudGold() colorWithAlphaComponent:0.85].CGColor;
+    self.layer.borderWidth = 2.5;
+    self.layer.borderColor = [hudGold() colorWithAlphaComponent:.93].CGColor;
     _knob = [[UIView alloc] initWithFrame:CGRectZero];
     _knob.userInteractionEnabled = NO;
-    _knob.backgroundColor = [UIColor colorWithWhite:0.70 alpha:0.78];
-    _knob.layer.borderColor = [UIColor whiteColor].CGColor;
-    _knob.layer.borderWidth = 1.2;
+    _knob.backgroundColor = [UIColor colorWithRed:.24 green:.17 blue:.10 alpha:.98];
+    _knob.layer.borderColor = hudGold().CGColor;
+    _knob.layer.borderWidth = 2.0;
     [self addSubview:_knob];
     _name = [[UILabel alloc] initWithFrame:CGRectZero];
     _name.text = left ? @"MOVE" : @"CAM";
-    _name.textColor = [UIColor colorWithWhite:1 alpha:0.7];
+    _name.textColor = [hudCream() colorWithAlphaComponent:.85];
     _name.textAlignment = NSTextAlignmentCenter;
     _name.font = [UIFont systemFontOfSize:9 weight:UIFontWeightBold];
     _name.userInteractionEnabled = NO;
@@ -331,14 +386,14 @@ static UIColor *hudBackground(void) {
     self.multipleTouchEnabled = NO;
     self.backgroundColor = hudBackground();
     self.layer.borderColor = [hudGold() colorWithAlphaComponent:.9].CGColor;
-    self.layer.borderWidth = 1.5;
-    self.layer.cornerRadius = 12;
+    self.layer.borderWidth = 2.0;
+    self.layer.cornerRadius = 15;
     _label = [[UILabel alloc] initWithFrame:self.bounds];
     _label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _label.text = @"◀  ITEM  •  USE  ▶";
-    _label.textColor = [UIColor whiteColor];
+    _label.textColor = hudCream();
     _label.textAlignment = NSTextAlignmentCenter;
-    _label.font = [UIFont boldSystemFontOfSize:14];
+    _label.font = [UIFont fontWithName:@"Georgia-Bold" size:14] ?: [UIFont boldSystemFontOfSize:14];
     _label.userInteractionEnabled = NO;
     [self addSubview:_label];
     return self;
@@ -408,18 +463,22 @@ static UIColor *hudBackground(void) {
     BOOL _artsType3;
     UIButton *_showButton;
     UIButton *_alphaButton;
+    UIButton *_settingsButton;  // compact gu-native-style settings tab
+    BOOL _settingsOpen;
     BOOL _controlsHidden;
     NSUInteger _opacityStep;
 }
 - (void)resetAll;
 - (void)syncWeapon;
+- (void)updateMenuVisibility;
 @end
 
 @implementation MHGUTouchRoot
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     if (_editing) {
-        if (hit == _editButton || hit == _sizePlus || hit == _sizeMinus || hit == _resetLayout)
+        if (hit == _editButton || hit == _sizePlus || hit == _sizeMinus ||
+            hit == _resetLayout || hit == _settingsButton)
             return hit;
         return self;
     }
@@ -509,18 +568,12 @@ static UIColor *hudBackground(void) {
     for (int i=0; i<3; i++) [self named:[NSString stringWithFormat:@"ART%d",i+1] view:_arts[i]];
 
     _cameraButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [_cameraButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _cameraButton.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-    _cameraButton.backgroundColor = hudBackground();
-    _cameraButton.layer.cornerRadius = 7;
+    mhgu_style_menu(_cameraButton);
     [_cameraButton addTarget:self action:@selector(toggleCamera:) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_cameraButton];
 
     _artsButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [_artsButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _artsButton.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-    _artsButton.backgroundColor = hudBackground();
-    _artsButton.layer.cornerRadius = 7;
+    mhgu_style_menu(_artsButton);
     [_artsButton addTarget:self action:@selector(toggleArts:) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_artsButton];
 
@@ -537,10 +590,7 @@ static UIColor *hudBackground(void) {
     for (NSUInteger i=0; i<menuButtons.count; i++) {
         UIButton *b = [menuButtons objectAtIndex:i];
         [b setTitle:[titles objectAtIndex:i] forState:UIControlStateNormal];
-        b.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-        [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        b.backgroundColor = hudBackground();
-        b.layer.cornerRadius = 6;
+        mhgu_style_menu(b);
         [b addTarget:self action:NSSelectorFromString([actions objectAtIndex:i])
                          forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:b];
@@ -564,21 +614,25 @@ static UIColor *hudBackground(void) {
 
     _showButton = [UIButton buttonWithType:UIButtonTypeCustom];
     [_showButton setTitle:@"HIDE" forState:UIControlStateNormal];
-    _showButton.titleLabel.font = [UIFont boldSystemFontOfSize:11];
-    [_showButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _showButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.13 blue:0.17 alpha:0.85];
-    _showButton.layer.cornerRadius = 7;
+    mhgu_style_menu(_showButton);
     [_showButton addTarget:self action:@selector(toggleControls:) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_showButton];
 
     _alphaButton = [UIButton buttonWithType:UIButtonTypeCustom];
     [_alphaButton setTitle:@"OPACITY" forState:UIControlStateNormal];
-    _alphaButton.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-    [_alphaButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _alphaButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.13 blue:0.17 alpha:0.85];
-    _alphaButton.layer.cornerRadius = 7;
+    mhgu_style_menu(_alphaButton);
     [_alphaButton addTarget:self action:@selector(cycleOpacity:) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_alphaButton];
+    // The gear stays accessible even when a controller hides the touch pad.
+    // Other settings appear only when tapped, preserving iPhone play space.
+    _settingsButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    [_settingsButton setTitle:@"⚙" forState:UIControlStateNormal];
+    mhgu_style_menu(_settingsButton);
+    _settingsButton.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightSemibold];
+    [_settingsButton addTarget:self action:@selector(toggleSettings:)
+              forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:_settingsButton];
+    _settingsOpen = NO;
 
     _opacityStep = [[NSUserDefaults standardUserDefaults] objectForKey:@"mhgu_touch_opacity_step"] ?
                    (NSUInteger)[[NSUserDefaults standardUserDefaults] integerForKey:@"mhgu_touch_opacity_step"] % 3 : 1;
@@ -589,6 +643,8 @@ static UIColor *hudBackground(void) {
                                                  name:GCControllerDidDisconnectNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appLostFocus:)
                                                  name:UIApplicationWillResignActiveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appBecameActive:)
+                                                 name:UIApplicationDidBecomeActiveNotification object:nil];
     [self controllerChanged:nil];
     return self;
 }
@@ -604,7 +660,12 @@ static UIColor *hudBackground(void) {
 }
 - (void)appLostFocus:(NSNotification *)notification {
     (void)notification;
+    atomic_store_explicit(&s_iosForeground, 0, memory_order_release);
     [self resetAll];
+}
+- (void)appBecameActive:(NSNotification *)notification {
+    (void)notification;
+    atomic_store_explicit(&s_iosForeground, 1, memory_order_release);
 }
 - (void)setControlsVisible:(BOOL)visible {
     _controlsHidden = !visible;
@@ -616,17 +677,28 @@ static UIColor *hudBackground(void) {
     }
     for (UIView *v in _controls) v.hidden = !visible;
     [_showButton setTitle:visible ? @"HIDE" : @"SHOW" forState:UIControlStateNormal];
-    _alphaButton.hidden = !visible;
-    _cameraButton.hidden = !visible;
-    _artsButton.hidden = !visible;
-    _weaponModeButton.hidden = !visible;
-    _lockButton.hidden = !visible;
-    _editButton.hidden = !visible;
-    _sizeMinus.hidden = !visible || !_editing;
-    _sizePlus.hidden = !visible || !_editing;
-    _resetLayout.hidden = !visible || !_editing;
+    [self updateMenuVisibility];
     [self updateRangedVisibility];
     [self updateCameraMode];
+}
+- (void)updateMenuVisibility {
+    BOOL open = _settingsOpen;
+    _showButton.hidden = !open;
+    _alphaButton.hidden = !open || _controlsHidden;
+    _cameraButton.hidden = !open || _controlsHidden;
+    _artsButton.hidden = !open || _controlsHidden;
+    _weaponModeButton.hidden = !open || _controlsHidden;
+    _lockButton.hidden = !open || _controlsHidden;
+    _editButton.hidden = !open || _controlsHidden;
+    _sizeMinus.hidden = !open || _controlsHidden || !_editing;
+    _sizePlus.hidden = !open || _controlsHidden || !_editing;
+    _resetLayout.hidden = !open || _controlsHidden || !_editing;
+    [_settingsButton setTitle:(open ? @"✕" : @"⚙") forState:UIControlStateNormal];
+}
+- (void)toggleSettings:(id)sender {
+    (void)sender;
+    _settingsOpen = !_settingsOpen;
+    [self updateMenuVisibility];
 }
 - (void)toggleControls:(id)sender {
     (void)sender;
@@ -718,8 +790,12 @@ static UIColor *hudBackground(void) {
             CGFloat halfW = _selectedControl.bounds.size.width / 2.0;
             CGFloat halfH = _selectedControl.bounds.size.height / 2.0;
             CGPoint c = _selectedControl.center;
-            c.x = MAX(halfW, MIN(self.bounds.size.width - halfW, c.x + p.x - _editPoint.x));
-            c.y = MAX(halfH, MIN(self.bounds.size.height - halfH, c.y + p.y - _editPoint.y));
+            CGRect safeRect = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+            if (CGRectIsEmpty(safeRect)) safeRect = self.bounds;
+            c.x = MAX(CGRectGetMinX(safeRect) + halfW,
+                      MIN(CGRectGetMaxX(safeRect) - halfW, c.x + p.x - _editPoint.x));
+            c.y = MAX(CGRectGetMinY(safeRect) + halfH,
+                      MIN(CGRectGetMaxY(safeRect) - halfH, c.y + p.y - _editPoint.y));
             _selectedControl.center = c;
             _editPoint = p;
         }
@@ -767,77 +843,104 @@ static UIColor *hudBackground(void) {
     [self setControlsVisible:([GCController controllers].count == 0)];
 }
 - (void)place:(UIView *)view center:(CGPoint)center diameter:(CGFloat)diameter {
-    view.frame = CGRectMake(center.x - diameter / 2, center.y - diameter / 2, diameter, diameter);
+    // Keep control hit targets in the actual safe viewport (notch / Dynamic Island / home bar).
+    UIEdgeInsets insets = self.safeAreaInsets;
+    CGRect r = UIEdgeInsetsInsetRect(self.bounds, insets);
+    if (CGRectIsEmpty(r)) r = self.bounds;
+    CGFloat radius = diameter * .5;
+    center.x = MAX(CGRectGetMinX(r) + radius, MIN(CGRectGetMaxX(r) - radius, center.x));
+    center.y = MAX(CGRectGetMinY(r) + radius, MIN(CGRectGetMaxY(r) - radius, center.y));
+    view.bounds = CGRectMake(0, 0, diameter, diameter);
+    view.center = center;
+}
+- (void)safeAreaInsetsDidChange {
+    [super safeAreaInsetsDidChange];
+    [self setNeedsLayout];
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w < 100 || h < 100) return;
     UIEdgeInsets safe = self.safeAreaInsets;
-    CGFloat scale = fmin(1.18, fmax(0.76, h / 390.0));
-    CGFloat button = 47 * scale, mini = 36 * scale, stick = 124 * scale;
-    CGFloat y = h - safe.bottom - 18 * scale - stick / 2;
-    CGFloat leftX = safe.left + 18 * scale + stick / 2;
-    CGFloat dX = leftX + 159 * scale;
-    CGFloat faceX = w - safe.right - 99 * scale;
-    CGFloat rightX = faceX - 157 * scale;
-    // Keep separate contact regions on narrow devices.
-    if (rightX - dX < stick * 1.17) {
-        CGFloat correction = (stick * 1.17 - (rightX - dX)) / 2;
+    CGFloat availW = MAX(100, w - safe.left - safe.right);
+    CGFloat availH = MAX(100, h - safe.top - safe.bottom);
+    // Points, not pixels: modern phones have 3x Retina scale. Responsive to small iPhones.
+    CGFloat scale = fmin(1.15, fmax(.78, availH / 355.0));
+    if (availW < 620) scale *= fmax(.78, availW / 620.0);
+    CGFloat button = 53 * scale, mini = 40 * scale, stick = 120 * scale;
+    CGFloat y = h - safe.bottom - 17 * scale - stick * .5;
+    CGFloat leftX = safe.left + 16 * scale + stick * .5;
+    CGFloat dX = leftX + 149 * scale;
+    CGFloat faceX = w - safe.right - 76 * scale;
+    CGFloat rightX = faceX - 147 * scale;
+    // iPhone SE / unusual rotation: distribute d-pad and camera stick symmetrically.
+    if (rightX - dX < stick * 1.12) {
+        CGFloat correction = (stick * 1.12 - (rightX - dX)) / 2;
         dX -= correction;
         rightX += correction;
     }
     [self place:_left center:CGPointMake(leftX, y) diameter:stick];
     [self place:_right center:CGPointMake(rightX, y) diameter:stick];
-    CGFloat spread = 49 * scale;
+    CGFloat spread = 50 * scale;
     [self place:_button[BTN_UP] center:CGPointMake(dX, y - spread) diameter:mini];
     [self place:_button[BTN_DOWN] center:CGPointMake(dX, y + spread) diameter:mini];
     [self place:_button[BTN_LEFT] center:CGPointMake(dX - spread, y) diameter:mini];
     [self place:_button[BTN_RIGHT] center:CGPointMake(dX + spread, y) diameter:mini];
-    [self place:_button[BTN_X] center:CGPointMake(faceX, y - spread) diameter:button];
-    [self place:_button[BTN_B] center:CGPointMake(faceX, y + spread) diameter:button];
-    [self place:_button[BTN_Y] center:CGPointMake(faceX - spread, y) diameter:button];
-    [self place:_button[BTN_A] center:CGPointMake(faceX + spread, y) diameter:button];
+    // Android-inspired combat cluster: heavy A, light X, evade B, sheathe Y.
+    [self place:_button[BTN_X] center:CGPointMake(faceX - 12 * scale, y - 61 * scale) diameter:button];
+    [self place:_button[BTN_A] center:CGPointMake(faceX + 19 * scale, y - 6 * scale) diameter:button];
+    [self place:_button[BTN_B] center:CGPointMake(faceX - 2 * scale, y + 57 * scale) diameter:button];
+    [self place:_button[BTN_Y] center:CGPointMake(faceX - 75 * scale, y - 10 * scale) diameter:mini];
 
-    CGFloat topY = safe.top + 17 * scale + mini / 2;
-    CGFloat l = safe.left + 18 * scale + mini / 2;
-    CGFloat r = w - safe.right - 18 * scale - mini / 2;
+    CGFloat topY = safe.top + 14 * scale + mini / 2;
+    CGFloat l = safe.left + 12 * scale + mini / 2;
+    CGFloat r = w - safe.right - 12 * scale - mini / 2;
     [self place:_button[BTN_L] center:CGPointMake(l, topY) diameter:mini];
-    [self place:_button[BTN_ZL] center:CGPointMake(l + 47 * scale, topY) diameter:mini];
-    [self place:_button[BTN_R] center:CGPointMake(r - 47 * scale, topY) diameter:mini];
+    [self place:_button[BTN_ZL] center:CGPointMake(l + 43 * scale, topY) diameter:mini];
+    [self place:_button[BTN_R] center:CGPointMake(r - 43 * scale, topY) diameter:mini];
     [self place:_button[BTN_ZR] center:CGPointMake(r, topY) diameter:mini];
-    CGFloat mid = w / 2;
-    [self place:_button[BTN_MINUS] center:CGPointMake(mid - 44 * scale, topY) diameter:mini];
-    [self place:_button[BTN_PLUS] center:CGPointMake(mid + 44 * scale, topY) diameter:mini];
-    [self place:_button[BTN_LSTICK] center:CGPointMake(mid - 130 * scale, topY) diameter:mini];
-    [self place:_button[BTN_RSTICK] center:CGPointMake(mid + 130 * scale, topY) diameter:mini];
-    _showButton.frame = CGRectMake(mid - 26 * scale, safe.top + 56 * scale, 52 * scale, 25 * scale);
-    _alphaButton.frame = CGRectMake(mid - 40 * scale, safe.top + 88 * scale, 80 * scale, 24 * scale);
-    _cameraButton.frame = CGRectMake(mid - 100 * scale, safe.top + 120 * scale, 95 * scale, 25 * scale);
-    _artsButton.frame = CGRectMake(mid + 5 * scale, safe.top + 120 * scale, 95 * scale, 25 * scale);
+    CGFloat mid = w * .5;
+    [self place:_button[BTN_MINUS] center:CGPointMake(mid - 41 * scale, topY) diameter:mini];
+    [self place:_button[BTN_PLUS] center:CGPointMake(mid + 41 * scale, topY) diameter:mini];
+    [self place:_button[BTN_LSTICK] center:CGPointMake(mid - 111 * scale, topY) diameter:mini];
+    [self place:_button[BTN_RSTICK] center:CGPointMake(mid + 111 * scale, topY) diameter:mini];
 
-    // A separate, draggable strip is used; the rendered guest item HUD is untouched.
-    CGFloat itemY = h - safe.bottom - 30 * scale;
-    _itemStrip.frame = CGRectMake(mid - 102 * scale, itemY - 23 * scale, 204 * scale, 46 * scale);
-    [self place:_fire center:CGPointMake(faceX + 20 * scale, y - 12 * scale) diameter:82 * scale];
-    [self place:_reload center:CGPointMake(faceX - 95 * scale, y + 43 * scale) diameter:54 * scale];
-    [self place:_aim center:CGPointMake(faceX - 112 * scale, y - 37 * scale) diameter:55 * scale];
-    [self place:_special center:CGPointMake(faceX - 54 * scale, y - 109 * scale) diameter:48 * scale];
-    [self place:_ammoUp center:CGPointMake(mid + 135 * scale, itemY - 33 * scale) diameter:41 * scale];
-    [self place:_ammoDown center:CGPointMake(mid + 135 * scale, itemY + 21 * scale) diameter:41 * scale];
-    // Dedicated Hunter Art slots. Correct input depends on in-game Control Type.
-    CGFloat artY = safe.top + 104 * scale;
-    CGFloat artX = w - safe.right - 177 * scale;
+    // Small permanent gear; the settings grid is hidden unless opened.
+    CGFloat gearX = safe.left + 10 * scale;
+    CGFloat gearY = safe.top + 66 * scale;
+    _settingsButton.frame = CGRectMake(gearX, gearY, 43 * scale, 37 * scale);
+    CGFloat panelX = gearX + 49 * scale;
+    CGFloat panelY = gearY;
+    CGFloat gutter = 5 * scale;
+    CGFloat panelW = fmin(112 * scale, (w - safe.right - panelX - 12 * scale) * .47);
+    CGFloat panelH = 27 * scale;
+    NSArray *panel = @[_showButton, _alphaButton, _cameraButton, _artsButton,
+                       _weaponModeButton, _lockButton, _editButton];
+    for (NSUInteger i = 0; i < panel.count; i++) {
+        UIButton *b = [panel objectAtIndex:i];
+        b.frame = CGRectMake(panelX + (i % 2) * (panelW + gutter),
+                             panelY + (i / 2) * (panelH + gutter), panelW, panelH);
+    }
+    _sizeMinus.frame = CGRectMake(panelX, panelY + 4 * (panelH + gutter), panelW * .73, panelH);
+    _sizePlus.frame = CGRectMake(panelX + panelW * .77, panelY + 4 * (panelH + gutter), panelW * .73, panelH);
+    _resetLayout.frame = CGRectMake(panelX + (panelW + gutter) * 1.55,
+                                    panelY + 4 * (panelH + gutter), panelW * .65, panelH);
+
+    CGFloat itemY = h - safe.bottom - 27 * scale;
+    _itemStrip.frame = CGRectMake(mid - 91 * scale, itemY - 19 * scale, 182 * scale, 38 * scale);
+    [self place:_fire center:CGPointMake(faceX, y - 15 * scale) diameter:72 * scale];
+    [self place:_reload center:CGPointMake(faceX - 85 * scale, y + 38 * scale) diameter:48 * scale];
+    [self place:_aim center:CGPointMake(faceX - 95 * scale, y - 45 * scale) diameter:49 * scale];
+    [self place:_special center:CGPointMake(faceX - 55 * scale, y - 102 * scale) diameter:44 * scale];
+    [self place:_ammoUp center:CGPointMake(mid + 115 * scale, itemY - 34 * scale) diameter:38 * scale];
+    [self place:_ammoDown center:CGPointMake(mid + 115 * scale, itemY + 19 * scale) diameter:38 * scale];
+    CGFloat artY = safe.top + 93 * scale;
+    CGFloat artX = w - safe.right - 152 * scale;
     for (int i = 0; i < 3; i++)
-        [self place:_arts[i] center:CGPointMake(artX + i * 52 * scale, artY) diameter:43 * scale];
-    _weaponModeButton.frame = CGRectMake(mid - 119 * scale, safe.top + 151 * scale, 114 * scale, 25 * scale);
-    _lockButton.frame = CGRectMake(mid + 5 * scale, safe.top + 151 * scale, 99 * scale, 25 * scale);
-    _editButton.frame = CGRectMake(mid - 45 * scale, safe.top + 180 * scale, 90 * scale, 25 * scale);
-    _sizeMinus.frame = CGRectMake(mid - 150 * scale, safe.top + 212 * scale, 85 * scale, 29 * scale);
-    _sizePlus.frame = CGRectMake(mid - 42 * scale, safe.top + 212 * scale, 85 * scale, 29 * scale);
-    _resetLayout.frame = CGRectMake(mid + 66 * scale, safe.top + 212 * scale, 85 * scale, 29 * scale);
+        [self place:_arts[i] center:CGPointMake(artX + i * 48 * scale, artY) diameter:41 * scale];
     [self applyCustomLayout];
     [self updateRangedVisibility];
+    [self updateMenuVisibility];
 }
 - (void)updateRangedVisibility {
     BOOL ranged = _weaponKind != 0;
@@ -905,8 +1008,11 @@ static UIColor *hudBackground(void) {
         }
         CGFloat cx = [[a objectAtIndex:0] doubleValue] * w;
         CGFloat cy = [[a objectAtIndex:1] doubleValue] * h;
-        v.center = CGPointMake(MAX(v.bounds.size.width/2, MIN(w-v.bounds.size.width/2,cx)),
-                               MAX(v.bounds.size.height/2,MIN(h-v.bounds.size.height/2,cy)));
+        CGRect safeRect = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+        if (CGRectIsEmpty(safeRect)) safeRect = self.bounds;
+        CGFloat hw = v.bounds.size.width * .5, hh = v.bounds.size.height * .5;
+        v.center = CGPointMake(MAX(CGRectGetMinX(safeRect)+hw, MIN(CGRectGetMaxX(safeRect)-hw,cx)),
+                               MAX(CGRectGetMinY(safeRect)+hh,MIN(CGRectGetMaxY(safeRect)-hh,cy)));
     }
 }
 - (void)saveLayout {
@@ -927,7 +1033,7 @@ static UIColor *hudBackground(void) {
     [_editFinger release]; _editFinger = nil;
     _selectedControl = nil;
     [_editButton setTitle:(_editing ? @"SAVE / DONE" : @"EDIT") forState:UIControlStateNormal];
-    _sizeMinus.hidden = _sizePlus.hidden = _resetLayout.hidden = !_editing;
+    [self updateMenuVisibility];
     for (UIView *v in _controls) v.userInteractionEnabled = !_editing;
     [self updateRangedVisibility];
     [self updateCameraMode];

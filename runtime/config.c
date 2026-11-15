@@ -414,12 +414,9 @@ void config_load(void) {
     const SDL_DisplayMode *dm = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
     desktop_w = dm ? dm->w : 1920, desktop_h = dm ? dm->h : 1080;
 #if defined(__APPLE__)
-    // On iOS/iPadOS, SDL display modes are returned in UIKit points (e.g. 480x300 or 960x640).
-    // Ensure native 1080p dimensions for sharp Retina display rendering!
-    if (desktop_w < 1920) {
-        desktop_w = 1920;
-        desktop_h = 1080;
-    }
+    // MHGU_IOS_DEVICE_NATIVE_ASPECT_V4: SDL returns UIKit points. The game viewport must
+    // follow their width/height ratio; the Vulkan swapchain uses Retina pixels separately.
+    // Do not force a 16:9 1920x1080 mode on an iPhone with a wider screen.
 #endif
     if (!g_config.width) g_config.width = desktop_w, g_config.height = desktop_h;
 
@@ -441,10 +438,13 @@ void config_load(void) {
     e = getenv("MHGU_RENDER");
     if (e && parse_size(e, &w, &h)) render_auto = false, g_config.render_w = w, g_config.render_h = h;
 
-    int tw = g_config.width, th = g_config.height;  // (Borderless shows the image at the desktop size)
+    int tw = g_config.width, th = g_config.height;  // window mode on desktop
 #if defined(__APPLE__)
-    if (tw < 1920) tw = 1920;
-    if (th < 1080) th = 1080;
+    // On mobile the screen aspect is independent of the old 1920x1080 INI value.
+    // The app supports landscape on both iPhone and iPad, even if SDL's
+    // initial display query reported portrait dimensions.
+    tw = desktop_w > desktop_h ? desktop_w : desktop_h;
+    th = desktop_w > desktop_h ? desktop_h : desktop_w;
 #else
     if (g_config.display_mode == DISPLAY_BORDERLESS) tw = tw < desktop_w ? tw : desktop_w, th = th < desktop_h ? th : desktop_h;
 #endif
@@ -459,7 +459,16 @@ void config_load(void) {
     }
     if (fabsf(aspect - 16.0f / 9.0f) < 0.01f) aspect = 16.0f / 9.0f;  // (1366x768 and the like)
     if (render_auto) {
+#if defined(__APPLE__)
+        // iPhones: default to roughly 2x screen points, capped at 1080 high.
+        // This avoids unnecessary 3x native-resolution GPU load on an A18 handset.
+        // An explicit RenderResolution in mhgurecomp.ini always overrides this.
+        int target_h = (int)fminf(1080.0f, fmaxf(720.0f, (float)th * 2.0f));
+        int target_w = (int)lroundf((float)target_h * aspect);
+        fit_aspect(target_w, target_h, aspect, &w, &h);
+#else
         fit_aspect(tw, th, aspect, &w, &h);
+#endif
     } else {
         fit_aspect(g_config.render_w, g_config.render_h, aspect, &w, &h);
         if (w != g_config.render_w || h != g_config.render_h)

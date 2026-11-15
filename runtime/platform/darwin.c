@@ -495,9 +495,16 @@ __attribute__((constructor(101))) static void darwin_early_log_init(void) {
 void plat_show_missing_files_screen(const char *main_path, const char *doc_path) {
     @autoreleasepool {
         SDL_Init(SDL_INIT_VIDEO);
-
-        SDL_Window *win = SDL_CreateWindow("MHGU Recomp", 1920, 1080, SDL_WINDOW_HIGH_PIXEL_DENSITY);
-        if (!win) win = SDL_CreateWindow("MHGU Recomp", 1280, 720, 0);
+        // MHGU_IOS_MISSING_FILES_SCREEN_V4: avoid a giant 1920x1080 window on a phone.
+        const SDL_DisplayMode *screen = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+        int side1 = screen && screen->w > 0 ? screen->w : 960;
+        int side2 = screen && screen->h > 0 ? screen->h : 540;
+        int width = side1 > side2 ? side1 : side2;
+        int height = side1 > side2 ? side2 : side1;
+        SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                SDL_WINDOW_BORDERLESS | SDL_WINDOW_FULLSCREEN;
+        SDL_Window *win = SDL_CreateWindow("MHGU Recomp", width, height, flags);
+        if (!win) win = SDL_CreateWindow("MHGU Recomp", width, height, 0);
 
         UIWindow *targetWindow = nil;
         if (win) {

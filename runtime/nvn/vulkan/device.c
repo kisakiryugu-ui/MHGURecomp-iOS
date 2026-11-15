@@ -572,6 +572,13 @@ static bool shot_frame(uint64_t f) {
 }
 
 void backend_present(NvnTexture *t) {
+#if defined(__APPLE__)
+    // MHGU_IOS_FOREGROUND_GUARD_V4: Metal prohibits GPU submits while backgrounded.
+    // Block the guest render thread WITHOUT holding Vulkan's mutex. UI notifications
+    // update the atomic flag so foregrounding resumes naturally.
+    extern int mhgu_ios_is_foreground(void);
+    while (!mhgu_ios_is_foreground()) SDL_Delay(50);
+#endif
     extern void vi_apply_framerate(void);
     vi_apply_framerate();
     vk_lock();
