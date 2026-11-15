@@ -42,7 +42,9 @@ typedef struct {
     int combo_window;         // [Controls] ComboInputWindow: COMBO_LENIENT / COMBO_STRICT
 } Config;
 enum { UI_CENTER = 1, UI_21_9, UI_32_9, UI_EDGES };  // the middle 16:9, 21:9, 32:9, the picture's sides
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern Config g_config;
 extern uint32_t g_render_size[2];  // read by the game code (tools/gen.py PATCHES: its docked render size)
 extern float g_render_aspect;      // the picture's shape, 16:10 or wider: the 3D cameras' aspect (tools/gen.py PATCHES)
@@ -56,3 +58,7 @@ void config_set_join(const char *join_addr);
 int config_live_combo_window(void);
 void config_window_focus(int focused);
 int config_is_window_focused(void);
+#ifdef __cplusplus
+}
+#endif
+
