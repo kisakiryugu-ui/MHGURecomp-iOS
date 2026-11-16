@@ -122,44 +122,58 @@ void mhgu_touch_clear(void) {
     atomic_store_explicit(&s_ry, 0, memory_order_relaxed);
 }
 
-// gu-native-inspired: parchment/bronze/charcoal/gold palette, rendered with UIKit.
-// This is original iOS UI code; the Android renderer is not linked into iOS.
+// Translucent gameplay controls and a higher contrast settings panel.
 static UIColor *hudGold(void) {
-    return [UIColor colorWithRed:222.0/255 green:186.0/255 blue:96.0/255 alpha:1.0];
+    return [UIColor colorWithRed:.91 green:.79 blue:.54 alpha:1.0];
 }
 static UIColor *hudCream(void) {
-    return [UIColor colorWithRed:244.0/255 green:232.0/255 blue:200.0/255 alpha:1.0];
+    return [UIColor colorWithRed:.98 green:.96 blue:.91 alpha:1.0];
 }
 static UIColor *hudBackground(void) {
-    return [UIColor colorWithRed:28.0/255 green:20.0/255 blue:15.0/255 alpha:0.87];
+    return [UIColor colorWithRed:.09 green:.10 blue:.12 alpha:.86];
 }
 static UIColor *hudPressed(void) {
-    return [UIColor colorWithRed:92.0/255 green:62.0/255 blue:22.0/255 alpha:0.96];
+    return [UIColor colorWithRed:.34 green:.26 blue:.15 alpha:.98];
 }
 static void mhgu_style_menu(UIButton *button) {
     button.backgroundColor = hudBackground();
-    button.layer.cornerRadius = 9.0;
-    button.layer.borderWidth = 1.1;
-    button.layer.borderColor = [hudGold() colorWithAlphaComponent:0.8].CGColor;
-    button.titleLabel.font = [UIFont fontWithName:@"Georgia-Bold" size:11] ?: [UIFont boldSystemFontOfSize:11];
+    button.layer.cornerRadius = 10.0;
+    button.layer.borderWidth = 1;
+    button.layer.borderColor = [hudGold() colorWithAlphaComponent:.72].CGColor;
+    button.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     button.titleLabel.adjustsFontSizeToFitWidth = YES;
     button.titleLabel.minimumScaleFactor = .65;
-    button.layer.shadowColor = hudGold().CGColor;
-    button.layer.shadowOffset = CGSizeMake(1.0, 1.5);
-    button.layer.shadowOpacity = .22f;
-    button.layer.shadowRadius = 2.0f;
     [button setTitleColor:hudCream() forState:UIControlStateNormal];
-    [button setTitleColor:[UIColor colorWithRed:1 green:.86 blue:.42 alpha:1] forState:UIControlStateHighlighted];
+    [button setTitleColor:hudGold() forState:UIControlStateHighlighted];
+    [button setTitleColor:[hudCream() colorWithAlphaComponent:.35] forState:UIControlStateDisabled];
+}
+
+static UILabel *touch_label(NSString *title, CGFloat size, UIFontWeight weight) {
+    UILabel *label = [[[UILabel alloc] initWithFrame:CGRectZero] autorelease];
+    label.text = title;
+    label.textColor = hudCream();
+    label.font = [UIFont systemFontOfSize:size weight:weight];
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = .75;
+    label.userInteractionEnabled = NO;
+    return label;
+}
+
+static UIButton *touch_menu_button(NSString *title, id target, SEL action) {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    mhgu_style_menu(button);
+    [button setTitle:title forState:UIControlStateNormal];
+    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
 }
 
 @interface MHGUTouchButton : UIView {
-    uint64_t _mask;
+    uint64_t _mask, _heldMask;
     uint64_t _pressStartMs;
     NSMutableSet *_active;
     UIColor *_accentV44;  // MHGU_IOS_CONTROL_PROFILES_V44
     UILabel *_caption;
-    UILabel *_badge;
-    CALayer *_innerRing;
+    BOOL _pill;
 }
 - (id)initWithLabel:(NSString *)label mask:(uint64_t)mask;
 - (void)setMask:(uint64_t)mask;
@@ -176,62 +190,28 @@ static void mhgu_style_menu(UIButton *button) {
     self.multipleTouchEnabled = YES;
     self.exclusiveTouch = NO; // More than one virtual button at a time.
     self.opaque = NO;
-    self.backgroundColor = hudBackground();
-    self.layer.borderColor = [hudGold() colorWithAlphaComponent:.95].CGColor;
-    self.layer.borderWidth = 2.1;
-    _innerRing = [[CALayer alloc] init];
-    _innerRing.borderColor = [[UIColor colorWithRed:112.0/255 green:76.0/255 blue:34.0/255 alpha:.90] CGColor];
-    _innerRing.borderWidth = 1.7;
-    [self.layer addSublayer:_innerRing];
-    _caption = [[UILabel alloc] initWithFrame:self.bounds];
-    _caption.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _caption.backgroundColor = [UIColor clearColor];
+    _pill = label.length > 1;
+    _caption = [touch_label(label, 15, UIFontWeightSemibold) retain];
     _caption.textAlignment = NSTextAlignmentCenter;
-    // Symbol plus a tiny original Switch letter, like gu-native's ink-and-badge controls.
-    NSDictionary *symbols = @{@"A":@"✦", @"X":@"✧", @"B":@"↶", @"Y":@"◇"};
-    NSString *symbol = [symbols objectForKey:label];
-    _caption.text = symbol ?: label;
-    if (symbol) {
-        _badge = [[UILabel alloc] initWithFrame:CGRectZero];
-        _badge.text = label;
-        _badge.textAlignment = NSTextAlignmentCenter;
-        _badge.backgroundColor = [UIColor colorWithRed:.08 green:.05 blue:.035 alpha:.98];
-        _badge.textColor = hudCream();
-        _badge.layer.borderColor = hudGold().CGColor;
-        _badge.layer.borderWidth = 1.0;
-        _badge.userInteractionEnabled = NO;
-        [self addSubview:_badge];
-    }
-    _caption.adjustsFontSizeToFitWidth = YES;
     _caption.minimumScaleFactor = 0.6;
-    _caption.textColor = hudCream();
-    _caption.font = [UIFont fontWithName:@"Georgia-Bold" size:18] ?: [UIFont boldSystemFontOfSize:18];
-    _caption.userInteractionEnabled = NO;
     [self addSubview:_caption];
+    [self setPressedStyle:NO];
     return self;
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat d = MIN(self.bounds.size.width, self.bounds.size.height);
-    self.layer.cornerRadius = d * 0.5;
-    _innerRing.frame = CGRectInset(self.bounds, d * .09, d * .09);
-    _innerRing.cornerRadius = d * .41;
-    _caption.font = [UIFont fontWithName:@"Georgia-Bold" size:MIN(22, d * .44)]
-                    ?: [UIFont boldSystemFontOfSize:MIN(22, d * .44)];
-    if (_badge) {
-        CGFloat bd = MAX(14, MIN(22, d * .32));
-        _badge.frame = CGRectMake(d * .61, d * .02, bd, bd);
-        _badge.layer.cornerRadius = bd * .5;
-        _badge.layer.masksToBounds = YES;
-        _badge.font = [UIFont boldSystemFontOfSize:MAX(9, bd * .58)];
-    }
+    self.layer.cornerRadius = d * (_pill ? .32 : .5);
+    _caption.frame = CGRectInset(self.bounds, d * .12, 0);
+    CGFloat size = _caption.text.length > 2 ? MIN(15, d * .28) : MIN(23, d * .43);
+    _caption.font = [UIFont systemFontOfSize:size weight:UIFontWeightBold];
 }
 - (void)setPressedStyle:(BOOL)pressed {
     self.backgroundColor = pressed ? hudPressed() : hudBackground();
     UIColor *accent = _accentV44 ?: hudGold();
-    self.layer.borderColor = (pressed ? [accent colorWithAlphaComponent:1.0] : accent).CGColor;
-    self.layer.borderWidth = pressed ? 2.8 : 2.1;
-    _innerRing.borderColor = (pressed ? accent : [accent colorWithAlphaComponent:.46]).CGColor;
+    self.layer.borderColor = [accent colorWithAlphaComponent:(pressed ? 1.0 : .78)].CGColor;
+    self.layer.borderWidth = pressed ? 2.2 : 1.25;
+    _caption.textColor = pressed ? accent : hudCream();
 }
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
@@ -239,7 +219,8 @@ static void mhgu_style_menu(UIButton *button) {
     [_active unionSet:touches];
     if (!wasDown) {
         _pressStartMs = mhgu_now_ms();
-        set_button_mask(_mask, YES);
+        _heldMask = _mask;
+        set_button_mask(_heldMask, YES);
     }
     [self setPressedStyle:YES];
 }
@@ -255,28 +236,25 @@ static void mhgu_style_menu(UIButton *button) {
         uint64_t elapsed = mhgu_now_ms() - _pressStartMs;
         // gu-native uses a minimum short-tap duration so the game loop
         // cannot miss a very quick touch between input snapshots.
-        if (elapsed < 75) pulse_button_mask(_mask, 75 - elapsed);
-        set_button_mask(_mask, NO);
-        [self setPressedStyle:NO];
+        if (elapsed < 75) pulse_button_mask(_heldMask, 75 - elapsed);
+        [self resetInput];
     }
 }
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
     BOOL wasDown = _active.count > 0;
     [_active minusSet:touches];
-    if (wasDown && _active.count == 0) {
-        set_button_mask(_mask, NO);
-        [self setPressedStyle:NO];
-    }
+    if (wasDown && _active.count == 0) [self resetInput];
 }
 - (void)setMask:(uint64_t)mask {
-    // MHGU_IOS_MULTITOUCH_DIAGNOSTICS_V442: weapon-state polls must not drop
-    // a physically held attack when its mapping is unchanged.
-    if (_mask == mask) return;
-    [self resetInput];
+    // Keep the active press on its original input through a draw or sheathe.
     _mask = mask;
 }
-- (void)setCaption:(NSString *)caption { _caption.text = caption; }
+- (void)setCaption:(NSString *)caption {
+    if ([_caption.text isEqualToString:caption]) return;
+    _caption.text = caption;
+    [self setNeedsLayout];
+}
 - (void)setAccentV44:(UIColor *)accent {
     if (accent != _accentV44) {
         [_accentV44 release];
@@ -285,7 +263,8 @@ static void mhgu_style_menu(UIButton *button) {
     [self setPressedStyle:(_active.count != 0)];
 }
 - (void)resetInput {
-    if (_active.count > 0) set_button_mask(_mask, NO);
+    if (_heldMask) set_button_mask(_heldMask, NO);
+    _heldMask = 0;
     [_active removeAllObjects];
     [self setPressedStyle:NO];
 }
@@ -293,8 +272,6 @@ static void mhgu_style_menu(UIButton *button) {
     [self resetInput];
     [_active release];
     [_caption release];
-    [_badge release];
-    [_innerRing release];
     [_accentV44 release];
     [super dealloc];
 }
@@ -319,19 +296,19 @@ static void mhgu_style_menu(UIButton *button) {
     self.exclusiveTouch = NO;
     self.opaque = NO;
     self.backgroundColor = hudBackground();
-    self.layer.borderWidth = 2.5;
-    self.layer.borderColor = [hudGold() colorWithAlphaComponent:.93].CGColor;
+    self.layer.borderWidth = 1.25;
+    self.layer.borderColor = [hudGold() colorWithAlphaComponent:.78].CGColor;
     _knob = [[UIView alloc] initWithFrame:CGRectZero];
     _knob.userInteractionEnabled = NO;
-    _knob.backgroundColor = [UIColor colorWithRed:.24 green:.17 blue:.10 alpha:.98];
+    _knob.backgroundColor = [hudGold() colorWithAlphaComponent:.22];
     _knob.layer.borderColor = hudGold().CGColor;
-    _knob.layer.borderWidth = 2.0;
+    _knob.layer.borderWidth = 1.4;
     [self addSubview:_knob];
     _name = [[UILabel alloc] initWithFrame:CGRectZero];
     _name.text = left ? @"MOVE" : @"CAM";
     _name.textColor = [hudCream() colorWithAlphaComponent:.85];
     _name.textAlignment = NSTextAlignmentCenter;
-    _name.font = [UIFont systemFontOfSize:9 weight:UIFontWeightBold];
+    _name.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
     _name.userInteractionEnabled = NO;
     [self addSubview:_name];
     return self;
@@ -426,15 +403,12 @@ static void mhgu_style_menu(UIButton *button) {
     self.exclusiveTouch = NO;
     self.backgroundColor = hudBackground();
     self.layer.borderColor = [hudGold() colorWithAlphaComponent:.9].CGColor;
-    self.layer.borderWidth = 2.0;
-    self.layer.cornerRadius = 15;
-    _label = [[UILabel alloc] initWithFrame:self.bounds];
+    self.layer.borderWidth = 1.25;
+    self.layer.cornerRadius = 11;
+    _label = [touch_label(@"‹      ITEMS      ›", 13, UIFontWeightSemibold) retain];
+    _label.frame = self.bounds;
     _label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _label.text = @"◀  ITEM  ✦  USE  ▶";
-    _label.textColor = hudCream();
     _label.textAlignment = NSTextAlignmentCenter;
-    _label.font = [UIFont fontWithName:@"Georgia-Bold" size:14] ?: [UIFont boldSystemFontOfSize:14];
-    _label.userInteractionEnabled = NO;
     [self addSubview:_label];
     return self;
 }
@@ -482,92 +456,83 @@ static void mhgu_style_menu(UIButton *button) {
 - (void)dealloc { [self resetInput]; [_label release]; [super dealloc]; }
 @end
 
-@interface MHGUTouchRoot : UIView {
+@interface MHGUTouchRoot : UIView <UITextFieldDelegate> {
     NSMutableArray *_controls;
-    MHGUTouchStick *_left;
-    MHGUTouchStick *_right;
+    MHGUTouchStick *_left, *_right;
     MHGUTouchButton *_button[16];
     MHGUTouchItemStrip *_itemStrip;
     MHGUTouchButton *_fire, *_reload, *_aim, *_special, *_ammoUp, *_ammoDown;
-    UIButton *_weaponModeButton, *_lockButton;
+    MHGUTouchButton *_arts[3], *_combo[2];
+    UIButton *_itemPrevV44, *_itemNextV44, *_itemUseV44;
     int _weaponSetting, _weaponKind, _drawn, _bowType;
-    BOOL _lockOn;
-    NSMutableDictionary *_namedControls;
-    NSMutableDictionary *_customLayout;
-    UIView *_selectedControl;
-    UITouch *_editFinger;
-    CGPoint _editPoint;
-    UIButton *_editButton, *_sizeMinus, *_sizePlus, *_resetLayout;
-    BOOL _editing;
-    MHGUTouchButton *_arts[3];
-    UIButton *_cameraButton, *_artsButton;
+    BOOL _lockOn, _cameraSwipe, _artsType3;
+    CGFloat _cameraSensitivity, _buttonOpacity;
+    NSInteger _touchVisibility;
+    BOOL _controlsHidden;
     UITouch *_cameraFinger;
     CGPoint _cameraPoint;
-    BOOL _cameraSwipe;
-    BOOL _artsType3;
-    UIButton *_showButton;
-    UIButton *_alphaButton;
-    UIButton *_settingsButton;  // compact gu-native-style settings tab
-    UIButton *_fpsButton;
-    MHGUTouchButton *_combo[2];
-    UIButton *_comboEdit[2];
-    UISlider *_opacitySlider, *_sensitivitySlider;
-    UILabel *_sensitivityText;
-    CGFloat _cameraSensitivity;
-    BOOL _settingsOpen;
-    BOOL _controlsHidden;
-    NSUInteger _opacityStep;
-    NSInteger _profileV44;  // 0 melee, 1 ranged, 2 custom
+    NSMutableDictionary *_touchOwnersV441;
+
+    // Keep the existing preference keys and saved layout format.
+    NSInteger _profileV44;
+    NSMutableDictionary *_namedControls, *_customLayout, *_stylesV44;
     NSMutableSet *_hiddenV44;
-    NSMutableDictionary *_stylesV44;
-    UIButton *_profileButtonV44, *_editorButtonV44, *_hudButtonV44;
-    UIButton *_itemPrevV44, *_itemNextV44, *_itemUseV44;
+    NSArray *_editorNamesV44;
+
+    UIView *_settingsBackdrop, *_settingsPanel, *_settingsContent;
+    UIButton *_settingsButton, *_settingsBack, *_settingsDone;
+    UILabel *_settingsTitle;
+    UISegmentedControl *_settingsTabs;
+    UIScrollView *_settingsScroll;
+    BOOL _settingsOpen;
+    NSString *_settingsControlKey;
+    CGPoint _buttonListOffset;
+
+    UIView *_layoutToolbar, *_selectionOutline, *_selectedControl;
+    UIButton *_layoutCancel, *_layoutReset, *_layoutDock, *_layoutSmaller, *_layoutLarger, *_layoutDone;
+    UILabel *_layoutSelection;
+    NSDictionary *_layoutBeforeEdit;
+    UITouch *_editFinger;
+    CGPoint _editPoint;
+    BOOL _editing, _layoutDockBottom;
+
     BOOL _repeatHeldV44[2];
     uint64_t _repeatStartV44[2], _repeatLastV44[2];
     NSTimer *_repeatTimerV44[2];
-    UIView *_editorPanelV44;
-    UIScrollView *_editorScrollV44;
-    NSArray *_editorNamesV44;
     UILabel *_hudLabelV44;
     NSTimer *_hudTimerV44;
     BOOL _hudOnV44;
     uint64_t _hudPrevFrameV44, _hudPrevMsV44;
-    NSMutableDictionary *_touchOwnersV441; // MHGU_IOS_TOUCH_CENTRAL_ROUTER_V441
 }
 - (void)resetAll;
 - (void)syncWeapon;
-- (void)updateMenuVisibility;
-- (BOOL)applyComboSlot:(NSUInteger)slot text:(NSString *)value;
 - (void)applyVisibilityV44;
 - (void)applyStylesV44;
-- (void)updateEditorLayoutV44;
-- (void)updateEditorRowsV44;
+- (BOOL)applyComboSlot:(NSUInteger)slot text:(NSString *)value;
 - (void)saveProfileV44;
 - (NSString *)profileStorageKeyV44:(NSString *)kind;
-- (void)updateProfileTitleV44;
+- (void)reloadProfileV44;
+- (void)setupSettings;
+- (void)showSettingsPage;
+- (void)setSettingsOpen:(BOOL)open;
+- (void)layoutToolsInRect:(CGRect)safe;
+- (void)updateSelection;
+- (void)rememberSelectedPlacement;
+- (void)stopItemRepeat:(UIButton *)button;
+- (void)updateHudTimer;
 @end
 
 @implementation MHGUTouchRoot
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
-    if (_editing) {
-        if (hit == _editButton || hit == _sizePlus || hit == _sizeMinus ||
-            hit == _resetLayout || hit == _settingsButton)
-            return hit;
-        return self;
-    }
-    // V4.4.1: one UIKit view receives every gameplay finger, even when a
-    // second finger presses a different button during joystick/camera motion.
-    // UIKit settings, scrollviews and dialogs keep their normal hit testing.
-    if ([hit isKindOfClass:[MHGUTouchButton class]] ||
-        [hit isKindOfClass:[MHGUTouchStick class]] ||
-        [hit isKindOfClass:[MHGUTouchItemStrip class]] ||
-        hit == _itemPrevV44 || hit == _itemUseV44 || hit == _itemNextV44)
-        return self;
-    // Empty screen is a relative camera surface; gameplay touches are
-    // routed below by their original finger identity, not UIKit view focus.
+    if (!hit || _settingsOpen) return hit;
+    if (_editing) return [hit isDescendantOfView:_layoutToolbar] ? hit : self;
+
+    // Deliver all gameplay touches to this view. Each finger keeps its
+    // original control even when another finger touches the screen.
+    if ([_controls containsObject:hit]) return self;
     if (hit == self)
-        return (!_controlsHidden && _cameraSwipe && point.x > self.bounds.size.width * 0.25) ? self : nil;
+        return (!_controlsHidden && _cameraSwipe && point.x > self.bounds.size.width * .25) ? self : nil;
     return hit;
 }
 - (void)addControl:(UIView *)view {
@@ -604,17 +569,7 @@ static void mhgu_style_menu(UIButton *button) {
     _profileV44 = [profilePrefsV44 objectForKey:@"mhgu_touch_active_profile_v44"] ?
                   [profilePrefsV44 integerForKey:@"mhgu_touch_active_profile_v44"] : 2;
     if (_profileV44 < 0 || _profileV44 > 2) _profileV44 = 2;
-    NSString *layoutKeyV44 = [NSString stringWithFormat:@"mhgu_touch_layout_profile_v44_%ld", (long)_profileV44];
-    NSDictionary *saved = [profilePrefsV44 dictionaryForKey:layoutKeyV44];
-    if (!saved && _profileV44 == 2) saved = [profilePrefsV44 dictionaryForKey:@"mhgu_touch_layout_v3"];
-    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:saved ?: @{}];
-    NSString *hiddenKeyV44 = [NSString stringWithFormat:@"mhgu_touch_hidden_profile_v44_%ld", (long)_profileV44];
-    NSArray *hidden = [profilePrefsV44 arrayForKey:hiddenKeyV44];
-    // New dedicated item buttons replace the older overlapping strip by default.
-    _hiddenV44 = [[NSMutableSet alloc] initWithArray:hidden ?: @[@"ITEM_BAR"]];
-    NSString *styleKeyV44 = [NSString stringWithFormat:@"mhgu_touch_styles_profile_v44_%ld", (long)_profileV44];
-    _stylesV44 = [[NSMutableDictionary alloc] initWithDictionary:
-                  [profilePrefsV44 dictionaryForKey:styleKeyV44] ?: @{}];
+    [self reloadProfileV44];
     _left = [[MHGUTouchStick alloc] initLeft:YES];
     [self addControl:_left];
     [self named:@"MOVE" view:_left];
@@ -653,7 +608,7 @@ static void mhgu_style_menu(UIButton *button) {
     _itemUseV44 = [UIButton buttonWithType:UIButtonTypeCustom];
     NSArray *itemButtonsV44 = @[_itemPrevV44, _itemUseV44, _itemNextV44];
     NSArray *itemNamesV44 = @[@"ITEM_PREV", @"ITEM_USE", @"ITEM_NEXT"];
-    NSArray *itemCaptionsV44 = @[@"◀ ITEM", @"✦ USE", @"ITEM ▶"];
+    NSArray *itemCaptionsV44 = @[@"‹", @"Use", @"›"];
     for (NSUInteger i=0; i<3; i++) {
         UIButton *b = [itemButtonsV44 objectAtIndex:i];
         mhgu_style_menu(b);
@@ -670,8 +625,8 @@ static void mhgu_style_menu(UIButton *button) {
            forControlEvents:UIControlEventTouchDown];
     UIControlEvents itemEndV44 = UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
                                  UIControlEventTouchCancel | UIControlEventTouchDragExit;
-    [_itemPrevV44 addTarget:self action:@selector(itemStopV44:) forControlEvents:itemEndV44];
-    [_itemNextV44 addTarget:self action:@selector(itemStopV44:) forControlEvents:itemEndV44];
+    [_itemPrevV44 addTarget:self action:@selector(stopItemRepeat:) forControlEvents:itemEndV44];
+    [_itemNextV44 addTarget:self action:@selector(stopItemRepeat:) forControlEvents:itemEndV44];
     _fire = [self addMaskButton:(UINT64_C(1) << BTN_A) text:@"FIRE"];
     _reload = [self addMaskButton:(UINT64_C(1) << BTN_X) text:@"RELOAD"];
     _aim = [self addMaskButton:(UINT64_C(1) << BTN_R) text:@"AIM"];
@@ -698,169 +653,45 @@ static void mhgu_style_menu(UIButton *button) {
     [self applyComboSlot:0 text:([comboPrefs stringForKey:@"mhgu_touch_combo_0"] ?: @"A+B")];
     [self applyComboSlot:1 text:([comboPrefs stringForKey:@"mhgu_touch_combo_1"] ?: @"R+X")];
 
-    _cameraButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    mhgu_style_menu(_cameraButton);
-    [_cameraButton addTarget:self action:@selector(toggleCamera:) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_cameraButton];
-
-    _artsButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    mhgu_style_menu(_artsButton);
-    [_artsButton addTarget:self action:@selector(toggleArts:) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_artsButton];
-
-    _weaponModeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _lockButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _editButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _sizeMinus = [UIButton buttonWithType:UIButtonTypeCustom];
-    _sizePlus = [UIButton buttonWithType:UIButtonTypeCustom];
-    _resetLayout = [UIButton buttonWithType:UIButtonTypeCustom];
-    NSArray *menuButtons = @[_weaponModeButton, _lockButton, _editButton, _sizeMinus, _sizePlus, _resetLayout];
-    NSArray *actions = @[@"toggleWeapon:", @"toggleLock:", @"toggleEdit:",
-                         @"shrinkSelected:", @"growSelected:", @"resetLayout:"];
-    NSArray *titles = @[@"WEAPON:AUTO", @"LOCK:OFF", @"EDIT", @"SIZE −", @"SIZE +", @"RESET"];
-    for (NSUInteger i=0; i<menuButtons.count; i++) {
-        UIButton *b = [menuButtons objectAtIndex:i];
-        [b setTitle:[titles objectAtIndex:i] forState:UIControlStateNormal];
-        mhgu_style_menu(b);
-        [b addTarget:self action:NSSelectorFromString([actions objectAtIndex:i])
-                         forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:b];
-    }
-    _sizeMinus.hidden = YES; _sizePlus.hidden = YES; _resetLayout.hidden = YES;
-
     NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
-    _cameraSwipe = [prefs objectForKey:@"mhgu_touch_camera_swipe"] ? [prefs boolForKey:@"mhgu_touch_camera_swipe"] : YES;
+    _cameraSwipe = [prefs objectForKey:@"mhgu_touch_camera_swipe"] ?
+                   [prefs boolForKey:@"mhgu_touch_camera_swipe"] : YES;
     _artsType3 = [prefs boolForKey:@"mhgu_touch_arts_type3"];
-    _weaponSetting = (int)[prefs integerForKey:@"mhgu_touch_weapon_setting"] % 4;
-    if (_weaponSetting < 0) _weaponSetting = 0;
+    _weaponSetting = (int)[prefs integerForKey:@"mhgu_touch_weapon_setting"];
+    if (_weaponSetting < 0 || _weaponSetting > 3) _weaponSetting = 0;
+    _touchVisibility = [prefs integerForKey:@"mhgu_touch_visibility_v45"];
+    if (_touchVisibility < 0 || _touchVisibility > 2) _touchVisibility = 0;
     _drawn = -1;
-    _lockOn = NO;
-    [self syncWeapon];
-    [self updateArtsMapping];
-    [self updateCameraMode];
-    NSArray *weaponNames = @[@"WEAPON:AUTO", @"WEAPON:GUN", @"WEAPON:BOW", @"WEAPON:NORM"];
-    [_weaponModeButton setTitle:[weaponNames objectAtIndex:_weaponSetting] forState:UIControlStateNormal];
     s_lastWeaponPollMs = 0;
     [self syncWeapon];
+    [self updateArtsMapping];
 
-    _showButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [_showButton setTitle:@"HIDE" forState:UIControlStateNormal];
-    mhgu_style_menu(_showButton);
-    [_showButton addTarget:self action:@selector(toggleControls:) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_showButton];
+    NSNumber *savedFPS = [prefs objectForKey:@"mhgu_touch_fps_v42"];
+    if (savedFPS) mhgu_touch_fps_set(savedFPS.intValue);
+    static const CGFloat oldOpacity[] = {.38, .64, .88};
+    NSInteger opacityStep = [prefs objectForKey:@"mhgu_touch_opacity_step"] ?
+                            [prefs integerForKey:@"mhgu_touch_opacity_step"] : 1;
+    if (opacityStep < 0 || opacityStep > 2) opacityStep = 1;
+    CGFloat opacity = [prefs objectForKey:@"mhgu_touch_opacity_v43"] ?
+                      [prefs doubleForKey:@"mhgu_touch_opacity_v43"] : oldOpacity[opacityStep];
+    _buttonOpacity = fmax(.25, fmin(1, opacity));
+    CGFloat sensitivity = [prefs objectForKey:@"mhgu_touch_camera_sensitivity_v43"] ?
+                          [prefs doubleForKey:@"mhgu_touch_camera_sensitivity_v43"] : 1.65;
+    _cameraSensitivity = fmax(.5, fmin(4, sensitivity));
+    _hudOnV44 = [prefs boolForKey:@"mhgu_touch_hud_v44"];
 
-    _alphaButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [_alphaButton setTitle:@"OPACITY" forState:UIControlStateNormal];
-    mhgu_style_menu(_alphaButton);
-    [_alphaButton addTarget:self action:@selector(cycleOpacity:) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_alphaButton];
-    // The gear stays accessible even when a controller hides the touch pad.
-    // Other settings appear only when tapped, preserving iPhone play space.
-    _settingsButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [_settingsButton setTitle:@"⚙" forState:UIControlStateNormal];
-    mhgu_style_menu(_settingsButton);
-    _settingsButton.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightSemibold];
-    [_settingsButton addTarget:self action:@selector(toggleSettings:)
-              forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_settingsButton];
-    _settingsOpen = NO;
-
-    // FPS selector lives in the existing 2-column settings panel, not over gameplay.
-    // Persist the player's choice; this takes precedence over the INI on next launch.
-    _fpsButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    mhgu_style_menu(_fpsButton);
-    [_fpsButton addTarget:self action:@selector(cycleFPS:)
-           forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_fpsButton];
-    NSNumber *savedFPS = [[NSUserDefaults standardUserDefaults] objectForKey:@"mhgu_touch_fps_v42"];
-    if (savedFPS) mhgu_touch_fps_set([savedFPS intValue]);
-    [_fpsButton setTitle:[NSString stringWithFormat:@"FPS:%d", mhgu_touch_fps_get()]
-                  forState:UIControlStateNormal];
-
-    // Slider values persist; migrate opacity from the old three-step setting.
-    NSUserDefaults *uiPrefs = [NSUserDefaults standardUserDefaults];
-    _opacityStep = [uiPrefs objectForKey:@"mhgu_touch_opacity_step"] ?
-                   (NSUInteger)[uiPrefs integerForKey:@"mhgu_touch_opacity_step"] % 3 : 1;
-    static const float oldAlpha[] = {.38f, .64f, .88f};
-    _opacitySlider = [[UISlider alloc] initWithFrame:CGRectZero];
-    _opacitySlider.minimumValue = .25f;
-    _opacitySlider.maximumValue = 1.0f;
-    _opacitySlider.value = [uiPrefs objectForKey:@"mhgu_touch_opacity_v43"] ?
-                            [uiPrefs floatForKey:@"mhgu_touch_opacity_v43"] : oldAlpha[_opacityStep];
-    _opacitySlider.minimumTrackTintColor = hudGold();
-    _opacitySlider.thumbTintColor = hudCream();
-    [_opacitySlider addTarget:self action:@selector(opacityChanged:)
-              forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_opacitySlider];
-    [_alphaButton setTitle:@"☼ OPACITY" forState:UIControlStateNormal];
-    _alphaButton.userInteractionEnabled = NO;
-    _cameraSensitivity = [uiPrefs objectForKey:@"mhgu_touch_camera_sensitivity_v43"] ?
-                         [uiPrefs floatForKey:@"mhgu_touch_camera_sensitivity_v43"] : 1.65f;
-    _cameraSensitivity = fmax(.5, fmin(4.0, _cameraSensitivity));
-    _sensitivitySlider = [[UISlider alloc] initWithFrame:CGRectZero];
-    _sensitivitySlider.minimumValue = .5f;
-    _sensitivitySlider.maximumValue = 4.0f;
-    _sensitivitySlider.value = _cameraSensitivity;
-    _sensitivitySlider.minimumTrackTintColor = hudGold();
-    _sensitivitySlider.thumbTintColor = hudCream();
-    [_sensitivitySlider addTarget:self action:@selector(sensitivityChanged:)
-                forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_sensitivitySlider];
-    _sensitivityText = [[UILabel alloc] initWithFrame:CGRectZero];
-    _sensitivityText.backgroundColor = [UIColor clearColor];
-    _sensitivityText.textColor = hudCream();
-    _sensitivityText.textAlignment = NSTextAlignmentCenter;
-    _sensitivityText.font = [UIFont fontWithName:@"Georgia-Bold" size:11] ?: [UIFont boldSystemFontOfSize:11];
-    [self addSubview:_sensitivityText];
-    [self sensitivityChanged:nil];
-    for (int slot=0; slot<2; slot++) {
-        _comboEdit[slot] = [UIButton buttonWithType:UIButtonTypeCustom];
-        mhgu_style_menu(_comboEdit[slot]);
-        [_comboEdit[slot] setTitle:(slot ? @"✦ COMBO II" : @"✦ COMBO I") forState:UIControlStateNormal];
-        [_comboEdit[slot] addTarget:self action:(slot ? @selector(editCombo2:) : @selector(editCombo1:))
-                  forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:_comboEdit[slot]];
-    }
-    // Profile + per-control editor + independent FPS/input diagnostics.
-    _profileButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
-    _editorButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
-    _hudButtonV44 = [UIButton buttonWithType:UIButtonTypeCustom];
-    NSArray *moreV44 = @[_profileButtonV44, _editorButtonV44, _hudButtonV44];
-    NSArray *moreSelectorsV44 = @[@"cycleProfileV44:", @"toggleEditorV44:", @"toggleHudV44:"];
-    for (NSUInteger i=0; i<moreV44.count; i++) {
-        UIButton *b = [moreV44 objectAtIndex:i];
-        mhgu_style_menu(b);
-        [b addTarget:self action:NSSelectorFromString([moreSelectorsV44 objectAtIndex:i])
-              forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:b];
-    }
-    [_editorButtonV44 setTitle:@"✎ BUTTONS" forState:UIControlStateNormal];
-    _hudOnV44 = [profilePrefsV44 boolForKey:@"mhgu_touch_hud_v44"];
-    [_hudButtonV44 setTitle:(_hudOnV44 ? @"HUD:ON" : @"HUD:OFF") forState:UIControlStateNormal];
-    [self updateProfileTitleV44];
-
-    _editorPanelV44 = [[UIView alloc] initWithFrame:CGRectZero];
-    _editorPanelV44.backgroundColor = [UIColor colorWithRed:.11 green:.09 blue:.07 alpha:.98];
-    _editorPanelV44.layer.borderColor = hudGold().CGColor;
-    _editorPanelV44.layer.borderWidth = 2;
-    _editorPanelV44.layer.cornerRadius = 14;
-    _editorPanelV44.hidden = YES;
-    [self addSubview:_editorPanelV44];
-    UILabel *editorHeaderV44 = [[[UILabel alloc] initWithFrame:CGRectZero] autorelease];
-    editorHeaderV44.tag = 44001;
-    editorHeaderV44.text = @"✦ HUNTER'S CONTROL WORKSHOP ✦";
-    editorHeaderV44.textColor = hudCream();
-    editorHeaderV44.textAlignment = NSTextAlignmentCenter;
-    editorHeaderV44.font = [UIFont fontWithName:@"Georgia-Bold" size:14] ?: [UIFont boldSystemFontOfSize:14];
-    [_editorPanelV44 addSubview:editorHeaderV44];
-    UIButton *closeV44 = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeV44.tag = 44002;
-    [closeV44 setTitle:@"✕ CLOSE" forState:UIControlStateNormal];
-    [closeV44 setTitleColor:hudCream() forState:UIControlStateNormal];
-    [closeV44 addTarget:self action:@selector(closeEditorV44:) forControlEvents:UIControlEventTouchUpInside];
-    [_editorPanelV44 addSubview:closeV44];
-    _editorScrollV44 = [[UIScrollView alloc] initWithFrame:CGRectZero];
-    [_editorPanelV44 addSubview:_editorScrollV44];
+    NSArray *order = @[@"MOVE", @"CAMERA_STICK", @"A", @"B", @"X", @"Y", @"L", @"R", @"ZL", @"ZR",
+                       @"+", @"−", @"▲", @"▼", @"◀", @"▶", @"L3", @"R3",
+                       @"FIRE", @"AIM", @"RELOAD", @"SPECIAL", @"AMMO_UP", @"AMMO_DOWN",
+                       @"ITEM_PREV", @"ITEM_USE", @"ITEM_NEXT", @"ITEM_BAR",
+                       @"ART1", @"ART2", @"ART3", @"COMBO_1", @"COMBO_2"];
+    NSMutableArray *names = [NSMutableArray arrayWithCapacity:_namedControls.count];
+    for (NSString *key in order)
+        if ([_namedControls objectForKey:key]) [names addObject:key];
+    for (NSString *key in [[_namedControls allKeys] sortedArrayUsingSelector:@selector(compare:)])
+        if (![names containsObject:key]) [names addObject:key];
+    _editorNamesV44 = [names copy];
+    [self setupSettings];
 
     _hudLabelV44 = [[UILabel alloc] initWithFrame:CGRectZero];
     _hudLabelV44.backgroundColor = [hudBackground() colorWithAlphaComponent:.88];
@@ -870,11 +701,12 @@ static void mhgu_style_menu(UIButton *button) {
     _hudLabelV44.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightSemibold];
     _hudLabelV44.numberOfLines = 2;
     _hudLabelV44.userInteractionEnabled = NO;
-    _hudLabelV44.text = @"FPS: --  |  Touch: --";
+    _hudLabelV44.text = @"  FPS —   •   BTN —\n  MOVE 0.0,0.0   CAM 0.0,0.0   F:0";
     _hudLabelV44.hidden = !_hudOnV44;
     [self addSubview:_hudLabelV44];
-    _hudTimerV44 = [[NSTimer scheduledTimerWithTimeInterval:.35 target:self
-              selector:@selector(updateHudV44:) userInfo:nil repeats:YES] retain];
+    [self updateHudTimer];
+    [self bringSubviewToFront:_settingsBackdrop];
+    [self bringSubviewToFront:_layoutToolbar];
     [self applyStylesV44];
     [self applyVisibilityV44];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(controllerChanged:)
@@ -885,92 +717,417 @@ static void mhgu_style_menu(UIButton *button) {
                                                  name:UIApplicationWillResignActiveNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appBecameActive:)
                                                  name:UIApplicationDidBecomeActiveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsKeyboardChanged:)
+                                                 name:UIKeyboardWillChangeFrameNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingsKeyboardChanged:)
+                                                 name:UIKeyboardWillHideNotification object:nil];
     [self controllerChanged:nil];
     return self;
 }
 - (void)resetAll {
-    // Forget old UITouch pointers on suspension, profile changes or hide.
     [_touchOwnersV441 removeAllObjects];
-    for (int i=0; i<2; i++) {
-        _repeatHeldV44[i] = NO;
-        [_repeatTimerV44[i] invalidate];
-        [_repeatTimerV44[i] release];
-        _repeatTimerV44[i] = nil;
-    }
-    for (UIView *v in _controls) {
-        if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v resetInput];
-        else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v resetInput];
-        else if ([v isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)v resetInput];
-    }
-    [_cameraFinger release];
-    _cameraFinger = nil;
+    for (UIView *view in _controls) [self resetControl:view];
+    [_editFinger release];
+    _editFinger = nil;
+    [self releaseCameraTouch];
     mhgu_touch_clear();
 }
 - (void)appLostFocus:(NSNotification *)notification {
     (void)notification;
     atomic_store_explicit(&s_iosForeground, 0, memory_order_release);
     [self resetAll];
+    [self updateHudTimer];
 }
 - (void)appBecameActive:(NSNotification *)notification {
     (void)notification;
     atomic_store_explicit(&s_iosForeground, 1, memory_order_release);
+    [self updateHudTimer];
 }
-- (void)setControlsVisible:(BOOL)visible {
-    _controlsHidden = !visible;
-    if (!visible) {
+- (void)setupSettings {
+    _settingsButton = touch_menu_button(nil, self, @selector(openSettings:));
+    UIImage *gear = [UIImage systemImageNamed:@"gearshape.fill"];
+    [_settingsButton setImage:gear forState:UIControlStateNormal];
+    _settingsButton.tintColor = hudCream();
+    _settingsButton.accessibilityLabel = @"Touch controls";
+    [self addSubview:_settingsButton];
+
+    _settingsBackdrop = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    _settingsBackdrop.backgroundColor = [UIColor colorWithWhite:0 alpha:.36];
+    _settingsBackdrop.accessibilityViewIsModal = YES;
+    _settingsBackdrop.hidden = YES;
+    [self addSubview:_settingsBackdrop];
+    _settingsPanel = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    _settingsPanel.backgroundColor = [UIColor colorWithRed:.09 green:.10 blue:.12 alpha:.98];
+    _settingsPanel.layer.cornerRadius = 16;
+    _settingsPanel.layer.borderWidth = 1;
+    _settingsPanel.layer.borderColor = [hudGold() colorWithAlphaComponent:.36].CGColor;
+    _settingsPanel.clipsToBounds = YES;
+    [_settingsBackdrop addSubview:_settingsPanel];
+
+    _settingsTitle = touch_label(@"Touch controls", 19, UIFontWeightBold);
+    [_settingsPanel addSubview:_settingsTitle];
+    _settingsBack = touch_menu_button(@"‹ Buttons", self, @selector(backToButtonList:));
+    _settingsBack.accessibilityLabel = @"Back to buttons";
+    [_settingsPanel addSubview:_settingsBack];
+    _settingsDone = touch_menu_button(@"Done", self, @selector(closeSettings:));
+    [_settingsPanel addSubview:_settingsDone];
+    _settingsTabs = [self settingsSegments:@[@"Play", @"Layout", @"Buttons"] selected:0 width:330
+                                   action:@selector(settingsTabChanged:)];
+    [_settingsPanel addSubview:_settingsTabs];
+
+    _settingsScroll = [[[UIScrollView alloc] initWithFrame:CGRectZero] autorelease];
+    _settingsScroll.indicatorStyle = UIScrollViewIndicatorStyleWhite;
+    _settingsScroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    _settingsScroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    [_settingsPanel addSubview:_settingsScroll];
+    _settingsContent = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    [_settingsScroll addSubview:_settingsContent];
+
+    _selectionOutline = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    _selectionOutline.userInteractionEnabled = NO;
+    _selectionOutline.hidden = YES;
+    _selectionOutline.layer.cornerRadius = 11;
+    _selectionOutline.layer.borderWidth = 2;
+    _selectionOutline.layer.borderColor = hudGold().CGColor;
+    [self addSubview:_selectionOutline];
+
+    _layoutToolbar = [[[UIView alloc] initWithFrame:CGRectZero] autorelease];
+    _layoutToolbar.backgroundColor = _settingsPanel.backgroundColor;
+    _layoutToolbar.layer.cornerRadius = 12;
+    _layoutToolbar.layer.borderWidth = 1;
+    _layoutToolbar.layer.borderColor = _settingsPanel.layer.borderColor;
+    _layoutToolbar.hidden = YES;
+    [self addSubview:_layoutToolbar];
+
+    _layoutSelection = touch_label(nil, 12, UIFontWeightSemibold);
+    _layoutSelection.textAlignment = NSTextAlignmentCenter;
+    [_layoutToolbar addSubview:_layoutSelection];
+    _layoutCancel = touch_menu_button(@"Cancel", self, @selector(cancelLayout:));
+    _layoutReset = touch_menu_button(@"Reset", self, @selector(resetLayout:));
+    _layoutDock = touch_menu_button(@"⇅", self, @selector(moveLayoutToolbar:));
+    _layoutDock.accessibilityLabel = @"Move layout toolbar";
+    _layoutSmaller = touch_menu_button(@"−", self, @selector(shrinkSelected:));
+    _layoutSmaller.accessibilityLabel = @"Smaller";
+    _layoutLarger = touch_menu_button(@"+", self, @selector(growSelected:));
+    _layoutLarger.accessibilityLabel = @"Larger";
+    _layoutDone = touch_menu_button(@"Save", self, @selector(saveLayout:));
+    _layoutDone.backgroundColor = hudPressed();
+    for (UIButton *button in @[_layoutCancel, _layoutReset, _layoutDock, _layoutSmaller, _layoutLarger, _layoutDone])
+        [_layoutToolbar addSubview:button];
+}
+
+- (UISegmentedControl *)settingsSegments:(NSArray<NSString *> *)labels selected:(NSInteger)index
+                                   width:(CGFloat)width action:(SEL)action {
+    UISegmentedControl *control = [[[UISegmentedControl alloc] initWithItems:labels] autorelease];
+    control.bounds = CGRectMake(0, 0, width, 34);
+    control.selectedSegmentIndex = index;
+    control.backgroundColor = [UIColor colorWithWhite:1 alpha:.09];
+    control.selectedSegmentTintColor = hudGold();
+    [control setTitleTextAttributes:@{NSForegroundColorAttributeName:hudCream()} forState:UIControlStateNormal];
+    [control setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor blackColor]} forState:UIControlStateSelected];
+    [control addTarget:self action:action forControlEvents:UIControlEventValueChanged];
+    return control;
+}
+
+- (UISwitch *)settingsSwitch:(BOOL)on action:(SEL)action {
+    UISwitch *control = [[[UISwitch alloc] initWithFrame:CGRectZero] autorelease];
+    control.on = on;
+    control.onTintColor = hudGold();
+    [control sizeToFit];
+    [control addTarget:self action:action forControlEvents:UIControlEventValueChanged];
+    return control;
+}
+
+- (UIView *)appendSettingsRow:(NSString *)title accessory:(UIView *)accessory {
+    CGFloat width = _settingsScroll.bounds.size.width;
+    CGFloat y = _settingsScroll.contentSize.height;
+    UIView *row = [[[UIView alloc] initWithFrame:CGRectMake(0, y, width, 48)] autorelease];
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [_settingsContent addSubview:row];
+
+    CGFloat accessoryWidth = accessory ? MIN(accessory.bounds.size.width, MAX(1, width - 16)) : 0;
+    if (accessory) {
+        accessory.frame = CGRectMake(width - accessoryWidth - 8, (48 - accessory.bounds.size.height)/2,
+                                     accessoryWidth, accessory.bounds.size.height);
+        accessory.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        if (title) accessory.accessibilityLabel = title;
+        [row addSubview:accessory];
+    }
+    if (title) {
+        UILabel *label = touch_label(title, 14, UIFontWeightMedium);
+        label.frame = CGRectMake(8, 0, MAX(1, width - accessoryWidth - 23), 48);
+        label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [row addSubview:label];
+    }
+    UIView *line = [[[UIView alloc] initWithFrame:CGRectMake(8, 47, MAX(1, width - 16), 1)] autorelease];
+    line.backgroundColor = [UIColor colorWithWhite:1 alpha:.08];
+    line.userInteractionEnabled = NO;
+    line.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [row addSubview:line];
+    _settingsScroll.contentSize = CGSizeMake(width, y + 48);
+    _settingsContent.frame = (CGRect){CGPointZero, _settingsScroll.contentSize};
+    return row;
+}
+
+- (void)appendSettingsAction:(NSString *)title action:(SEL)action {
+    UIView *row = [self appendSettingsRow:nil accessory:nil];
+    UIButton *button = touch_menu_button(title, self, action);
+    button.frame = CGRectInset(row.bounds, 8, 4);
+    button.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [row addSubview:button];
+}
+
+- (void)showSliderValue:(UISlider *)slider percent:(BOOL)percent {
+    UILabel *value = (UILabel *)[slider.superview viewWithTag:4501];
+    value.text = percent ? [NSString stringWithFormat:@"%.0f%%", slider.value * 100] :
+                           [NSString stringWithFormat:@"%.2f×", slider.value];
+    slider.accessibilityValue = value.text;
+}
+
+- (void)appendSlider:(NSString *)title minimum:(float)minimum maximum:(float)maximum
+               value:(float)value percent:(BOOL)percent action:(SEL)action {
+    UIView *accessory = [[[UIView alloc] initWithFrame:CGRectMake(0, 0, 162, 42)] autorelease];
+    UISlider *slider = [[[UISlider alloc] initWithFrame:CGRectMake(0, 0, 117, 42)] autorelease];
+    slider.minimumValue = minimum;
+    slider.maximumValue = maximum;
+    slider.value = value;
+    slider.minimumTrackTintColor = hudGold();
+    slider.thumbTintColor = hudCream();
+    slider.accessibilityLabel = title;
+    slider.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [slider addTarget:self action:action forControlEvents:UIControlEventValueChanged];
+    [accessory addSubview:slider];
+    UILabel *number = touch_label(nil, 12, UIFontWeightSemibold);
+    number.tag = 4501;
+    number.frame = CGRectMake(118, 0, 44, 42);
+    number.textAlignment = NSTextAlignmentRight;
+    number.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [accessory addSubview:number];
+    [self appendSettingsRow:title accessory:accessory];
+    [self showSliderValue:slider percent:percent];
+}
+
+- (UITextField *)appendTextField:(NSString *)title text:(NSString *)text action:(SEL)action {
+    UITextField *field = [[[UITextField alloc] initWithFrame:CGRectMake(0, 0, 162, 38)] autorelease];
+    field.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    field.borderStyle = UITextBorderStyleRoundedRect;
+    field.backgroundColor = [UIColor colorWithWhite:1 alpha:.10];
+    field.textColor = hudCream();
+    field.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+    field.text = text;
+    field.clearButtonMode = UITextFieldViewModeWhileEditing;
+    field.returnKeyType = UIReturnKeyDone;
+    field.autocorrectionType = UITextAutocorrectionTypeNo;
+    field.delegate = self;
+    [field addTarget:self action:action forControlEvents:UIControlEventEditingDidEnd];
+    [self appendSettingsRow:title accessory:field];
+    return field;
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)field {
+    [field resignFirstResponder];
+    return YES;
+}
+
+- (void)settingsKeyboardChanged:(NSNotification *)notification {
+    if (!_settingsOpen || !_settingsControlKey || !self.window) return;
+
+    CGFloat bottomInset = 0;
+    NSValue *frame = [notification.userInfo objectForKey:UIKeyboardFrameEndUserInfoKey];
+    if (frame && ![notification.name isEqualToString:UIKeyboardWillHideNotification]) {
+        CGRect keyboard = [_settingsScroll convertRect:frame.CGRectValue
+                                     fromCoordinateSpace:self.window.screen.coordinateSpace];
+        CGRect overlap = CGRectIntersection(keyboard, _settingsScroll.bounds);
+        if (!CGRectIsEmpty(overlap)) bottomInset = CGRectGetMaxY(_settingsScroll.bounds) - CGRectGetMinY(overlap);
+    }
+    UIEdgeInsets insets = UIEdgeInsetsMake(0, 0, bottomInset, 0);
+    _settingsScroll.contentInset = insets;
+    _settingsScroll.verticalScrollIndicatorInsets = insets;
+    if (bottomInset <= 0) return;
+    for (UIView *row in _settingsContent.subviews) {
+        for (UIView *field in row.subviews) {
+            if (!field.isFirstResponder) continue;
+            CGRect textBox = [field convertRect:field.bounds toView:_settingsScroll];
+            [_settingsScroll scrollRectToVisible:CGRectInset(textBox, 0, -5) animated:YES];
+            return;
+        }
+    }
+}
+
+- (void)layoutToolsInRect:(CGRect)safe {
+    CGFloat left = CGRectGetMinX(safe), top = CGRectGetMinY(safe);
+    CGFloat width = MIN(382, MAX(1, safe.size.width - 16));
+    CGFloat height = MIN(435, MAX(1, safe.size.height - 12));
+    _settingsBackdrop.frame = self.bounds;
+    _settingsPanel.frame = CGRectMake(left + 8, CGRectGetMidY(safe) - height/2, width, height);
+
+    BOOL detail = _settingsControlKey != nil;
+    CGFloat titleX = detail ? 78 : 16;
+    _settingsTitle.frame = CGRectMake(titleX, 5, MAX(1, width - titleX - 73), 40);
+    _settingsBack.frame = CGRectMake(8, 6, 64, 36);
+    _settingsDone.frame = CGRectMake(width - 64, 6, 56, 36);
+    _settingsTabs.frame = CGRectMake(8, 50, MAX(1, width - 16), 34);
+    CGFloat bodyTop = detail ? 47 : 90;
+    _settingsScroll.frame = CGRectMake(4, bodyTop, MAX(1, width - 8), MAX(1, height - bodyTop - 6));
+    _settingsScroll.contentSize = CGSizeMake(_settingsScroll.bounds.size.width, _settingsScroll.contentSize.height);
+    _settingsContent.frame = (CGRect){CGPointZero, _settingsScroll.contentSize};
+
+    CGFloat toolbarWidth = MIN(safe.size.width - 12, 377);
+    CGFloat dockY = _layoutDockBottom ? CGRectGetMaxY(safe) - 74 : top + 6;
+    _layoutToolbar.frame = CGRectMake(CGRectGetMidX(safe) - toolbarWidth/2, dockY, toolbarWidth, 68);
+    _layoutSelection.frame = CGRectMake(8, 1, toolbarWidth - 16, 20);
+    NSArray *tools = @[_layoutCancel, _layoutReset, _layoutDock, _layoutSmaller, _layoutLarger, _layoutDone];
+    CGFloat slot = (toolbarWidth - 10) / tools.count;
+    for (NSUInteger i = 0; i < tools.count; i++) {
+        UIButton *button = [tools objectAtIndex:i];
+        button.frame = CGRectMake(5 + i * slot, 22, slot - 4, 40);
+    }
+    [self updateSelection];
+}
+
+- (void)setSettingsOpen:(BOOL)open {
+    if (open) [self resetAll];
+    else [self endEditing:YES];
+    _settingsOpen = open;
+    _settingsBackdrop.hidden = !open;
+    _settingsButton.hidden = open || _editing;
+    if (open) [self showSettingsPage];
+    else {
+        _settingsScroll.contentInset = UIEdgeInsetsZero;
+        _settingsScroll.verticalScrollIndicatorInsets = UIEdgeInsetsZero;
+    }
+}
+
+- (void)openSettings:(id)sender { (void)sender; [self setSettingsOpen:YES]; }
+- (void)closeSettings:(id)sender { (void)sender; [self setSettingsOpen:NO]; }
+
+- (void)settingsTabChanged:(UISegmentedControl *)sender {
+    (void)sender;
+    [self showSettingsPage];
+}
+
+- (void)refreshControlsVisibility {
+    BOOL hidden = _touchVisibility == 2 || (_touchVisibility == 0 && [GCController controllers].count != 0);
+    if (hidden == _controlsHidden) return;
+    _controlsHidden = hidden;
+    if (hidden) {
         [self resetAll];
-        mhgu_touch_lock_enable(0);
         _lockOn = NO;
-        [_lockButton setTitle:@"LOCK:OFF" forState:UIControlStateNormal];
+        mhgu_touch_lock_enable(0);
     }
-    for (UIView *v in _controls) v.hidden = !visible;
-    [_showButton setTitle:visible ? @"HIDE" : @"SHOW" forState:UIControlStateNormal];
-    [self updateMenuVisibility];
-    [self updateRangedVisibility];
-    [self updateCameraMode];
+    [self applyVisibilityV44];
+    if (_settingsOpen && _settingsTabs.selectedSegmentIndex == 0) [self showSettingsPage];
 }
-- (void)updateMenuVisibility {
-    BOOL open = _settingsOpen;
-    _showButton.hidden = !open;
-    _alphaButton.hidden = !open || _controlsHidden;
-    _cameraButton.hidden = !open || _controlsHidden;
-    _artsButton.hidden = !open || _controlsHidden;
-    _weaponModeButton.hidden = !open || _controlsHidden;
-    _lockButton.hidden = !open || _controlsHidden;
-    _editButton.hidden = !open || _controlsHidden;
-    _fpsButton.hidden = !open || _controlsHidden;
-    _alphaButton.hidden = !open;
-    _opacitySlider.hidden = !open;
-    _sensitivitySlider.hidden = !open;
-    _sensitivityText.hidden = !open;
-    _comboEdit[0].hidden = !open || _controlsHidden;
-    _comboEdit[1].hidden = !open || _controlsHidden;
-    _profileButtonV44.hidden = !open;
-    _editorButtonV44.hidden = !open || _controlsHidden;
-    _hudButtonV44.hidden = !open;
-    _sizeMinus.hidden = !open || _controlsHidden || !_editing;
-    _sizePlus.hidden = !open || _controlsHidden || !_editing;
-    _resetLayout.hidden = !open || _controlsHidden || !_editing;
-    [_settingsButton setTitle:(open ? @"✕" : @"⚙") forState:UIControlStateNormal];
+
+- (void)touchVisibilityChanged:(UISegmentedControl *)sender {
+    _touchVisibility = sender.selectedSegmentIndex;
+    [[NSUserDefaults standardUserDefaults] setInteger:_touchVisibility forKey:@"mhgu_touch_visibility_v45"];
+    [self refreshControlsVisibility];
 }
-- (void)cycleFPS:(id)sender {
-    (void)sender;
-    static const int targets[] = {30, 60, 90, 120};
-    int current = mhgu_touch_fps_get(), next = 30;
-    for (unsigned i = 0; i < sizeof targets / sizeof targets[0]; i++) {
-        if (targets[i] > current) { next = targets[i]; break; }
+- (void)cameraModeChanged:(UISegmentedControl *)sender {
+    _cameraSwipe = sender.selectedSegmentIndex == 0;
+    [[NSUserDefaults standardUserDefaults] setBool:_cameraSwipe forKey:@"mhgu_touch_camera_swipe"];
+    [self applyVisibilityV44];
+}
+- (void)weaponModeChanged:(UISegmentedControl *)sender {
+    _weaponSetting = (int)sender.selectedSegmentIndex;
+    [[NSUserDefaults standardUserDefaults] setInteger:_weaponSetting forKey:@"mhgu_touch_weapon_setting"];
+    s_lastWeaponPollMs = 0;
+    [self syncWeapon];
+}
+- (void)artsModeChanged:(UISegmentedControl *)sender {
+    _artsType3 = sender.selectedSegmentIndex == 1;
+    [[NSUserDefaults standardUserDefaults] setBool:_artsType3 forKey:@"mhgu_touch_arts_type3"];
+    [self updateArtsMapping];
+}
+- (void)cameraSensitivityChanged:(UISlider *)sender {
+    _cameraSensitivity = sender.value;
+    [[NSUserDefaults standardUserDefaults] setFloat:sender.value forKey:@"mhgu_touch_camera_sensitivity_v43"];
+    [self showSliderValue:sender percent:NO];
+}
+- (void)lockChanged:(UISwitch *)sender {
+    _lockOn = mhgu_touch_lock_available() && sender.isOn;
+    mhgu_touch_lock_enable(_lockOn);
+    sender.on = _lockOn;
+}
+- (void)fpsTargetChanged:(UISegmentedControl *)sender {
+    NSInteger index = sender.selectedSegmentIndex;
+    if (index < 0 || index > 3) return;
+    int fps = 30 * ((int)index + 1);
+    mhgu_touch_fps_set(fps);
+    [[NSUserDefaults standardUserDefaults] setInteger:fps forKey:@"mhgu_touch_fps_v42"];
+}
+- (void)hudChanged:(UISwitch *)sender {
+    _hudOnV44 = sender.isOn;
+    _hudLabelV44.hidden = !_hudOnV44;
+    [[NSUserDefaults standardUserDefaults] setBool:_hudOnV44 forKey:@"mhgu_touch_hud_v44"];
+    [self updateHudTimer];
+}
+- (void)globalOpacityChanged:(UISlider *)sender {
+    _buttonOpacity = sender.value;
+    [[NSUserDefaults standardUserDefaults] setFloat:sender.value forKey:@"mhgu_touch_opacity_v43"];
+    [self updateOpacity];
+    [self showSliderValue:sender percent:YES];
+}
+
+- (void)showPlaySettings {
+    [self appendSettingsRow:@"Touch controls" accessory:
+        [self settingsSegments:@[@"Auto", @"On", @"Off"] selected:_touchVisibility width:152
+                         action:@selector(touchVisibilityChanged:)]];
+    [self appendSettingsRow:@"Camera" accessory:
+        [self settingsSegments:@[@"Swipe", @"Stick"] selected:_cameraSwipe ? 0 : 1 width:141
+                         action:@selector(cameraModeChanged:)]];
+    [self appendSlider:@"Camera sensitivity" minimum:.5 maximum:4 value:_cameraSensitivity percent:NO
+                action:@selector(cameraSensitivityChanged:)];
+    [self appendSettingsRow:@"Weapon buttons" accessory:
+        [self settingsSegments:@[@"Auto", @"Gun", @"Bow", @"Melee"] selected:_weaponSetting width:177
+                         action:@selector(weaponModeChanged:)]];
+    [self appendSettingsRow:@"Hunter Arts" accessory:
+        [self settingsSegments:@[@"Type 1", @"Type 3"] selected:_artsType3 ? 1 : 0 width:141
+                         action:@selector(artsModeChanged:)]];
+    UISwitch *lock = [self settingsSwitch:_lockOn action:@selector(lockChanged:)];
+    lock.enabled = mhgu_touch_lock_available() != 0;
+    [self appendSettingsRow:(lock.enabled ? @"Camera lock-on" : @"Lock-on unavailable") accessory:lock];
+    int target = mhgu_touch_fps_get();
+    NSInteger fpsIndex = target >= 30 && target <= 120 && target % 30 == 0 ? target/30 - 1 : -1;
+    [self appendSettingsRow:@"FPS target" accessory:
+        [self settingsSegments:@[@"30", @"60", @"90", @"120"] selected:fpsIndex width:162
+                         action:@selector(fpsTargetChanged:)]];
+    [self appendSettingsRow:@"FPS and input HUD" accessory:[self settingsSwitch:_hudOnV44 action:@selector(hudChanged:)]];
+}
+- (void)showLayoutSettings {
+    [self appendSettingsRow:@"Profile" accessory:
+        [self settingsSegments:@[@"Melee", @"Ranged", @"Custom"] selected:_profileV44 width:196
+                         action:@selector(profileChanged:)]];
+    [self appendSlider:@"Button opacity" minimum:.25 maximum:1 value:_buttonOpacity percent:YES
+                action:@selector(globalOpacityChanged:)];
+    [self appendSettingsAction:@"Edit layout" action:@selector(openLayoutEditor:)];
+}
+
+- (void)showSettingsPage {
+    BOOL detail = _settingsControlKey != nil;
+    _settingsBack.hidden = !detail;
+    _settingsTabs.hidden = detail;
+    _settingsTitle.text = detail ? [self controlTitle:_settingsControlKey] : @"Touch controls";
+    [self layoutToolsInRect:[self safeControlRect]];
+    for (UIView *view in [[_settingsContent.subviews copy] autorelease]) [view removeFromSuperview];
+    _settingsScroll.contentInset = UIEdgeInsetsZero;
+    _settingsScroll.verticalScrollIndicatorInsets = UIEdgeInsetsZero;
+    _settingsScroll.contentSize = CGSizeZero;
+
+    if (detail) [self showButtonSettings];
+    else if (_settingsTabs.selectedSegmentIndex == 1) [self showLayoutSettings];
+    else if (_settingsTabs.selectedSegmentIndex == 2) [self showButtonList];
+    else [self showPlaySettings];
+
+    CGPoint offset = CGPointZero;
+    if (!detail && _settingsTabs.selectedSegmentIndex == 2) {
+        CGFloat maxY = MAX(0, _settingsScroll.contentSize.height - _settingsScroll.bounds.size.height);
+        offset.y = MAX(0, MIN(_buttonListOffset.y, maxY));
     }
-    mhgu_touch_fps_set(next);
-    [[NSUserDefaults standardUserDefaults] setInteger:next forKey:@"mhgu_touch_fps_v42"];
-    [_fpsButton setTitle:[NSString stringWithFormat:@"FPS:%d", next]
-                  forState:UIControlStateNormal];
+    [_settingsScroll setContentOffset:offset animated:NO];
 }
-- (void)toggleSettings:(id)sender {
-    (void)sender;
-    _settingsOpen = !_settingsOpen;
-    if (!_settingsOpen) _editorPanelV44.hidden = YES;
-    [self updateMenuVisibility];
-}
+
 - (uint64_t)comboBit:(NSString *)part {
     static const int bits[] = {BTN_A, BTN_B, BTN_X, BTN_Y, BTN_L, BTN_R, BTN_ZL, BTN_ZR,
                                BTN_PLUS, BTN_MINUS};
@@ -995,81 +1152,6 @@ static void mhgu_style_menu(UIButton *button) {
                                              forKey:[NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot]];
     return YES;
 }
-- (void)editComboSlot:(NSUInteger)slot {
-    UIViewController *vc = self.window.rootViewController;
-    if (!vc) return;
-    NSString *key = [NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"⚒ Forge a Combo"
-        message:@"Type two different buttons: A+B, R+X, ZL+Y, etc. Valid: A B X Y L R ZL ZR PLUS MINUS."
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.placeholder = @"A+B";
-        tf.text = [[NSUserDefaults standardUserDefaults] stringForKey:key] ?: (slot ? @"R+X" : @"A+B");
-        tf.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Forge" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        NSString *entry = [[alert.textFields firstObject] text];
-        if (![self applyComboSlot:slot text:entry]) {
-            UIAlertController *err = [UIAlertController alertControllerWithTitle:@"Invalid combo"
-                message:@"Use two different button names separated by + (example: R+X)."
-                preferredStyle:UIAlertControllerStyleAlert];
-            [err addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            [vc presentViewController:err animated:YES completion:nil];
-        }
-    }]];
-    [vc presentViewController:alert animated:YES completion:nil];
-}
-- (void)editCombo1:(id)sender { (void)sender; [self editComboSlot:0]; }
-- (void)editCombo2:(id)sender { (void)sender; [self editComboSlot:1]; }
-- (void)toggleControls:(id)sender {
-    (void)sender;
-    [self setControlsVisible:_controlsHidden];
-}
-- (void)updateOpacity {
-    CGFloat value = _opacitySlider ? _opacitySlider.value : .64f;
-    for (UIView *v in _controls) {
-        NSString *key = [[_namedControls allKeysForObject:v] firstObject];
-        NSDictionary *style = key ? [_stylesV44 objectForKey:key] : nil;
-        CGFloat own = [style objectForKey:@"alpha"] ? [[style objectForKey:@"alpha"] doubleValue] : 1.0;
-        v.alpha = value * MAX(.25, MIN(1.0, own));
-    }
-    _settingsButton.alpha = value; // Gear remains linked to the global opacity slider.
-}
-- (void)opacityChanged:(UISlider *)sender {
-    (void)sender;
-    [self updateOpacity];
-    [[NSUserDefaults standardUserDefaults] setFloat:_opacitySlider.value forKey:@"mhgu_touch_opacity_v43"];
-}
-- (void)sensitivityChanged:(UISlider *)sender {
-    (void)sender;
-    _cameraSensitivity = _sensitivitySlider.value;
-    _sensitivityText.text = [NSString stringWithFormat:@"CAMERA ×%.2f", _cameraSensitivity];
-    [[NSUserDefaults standardUserDefaults] setFloat:_cameraSensitivity
-                                            forKey:@"mhgu_touch_camera_sensitivity_v43"];
-}
-- (void)cycleOpacity:(id)sender {
-    (void)sender;
-    _opacityStep = (_opacityStep + 1) % 3;
-    [[NSUserDefaults standardUserDefaults] setInteger:(NSInteger)_opacityStep forKey:@"mhgu_touch_opacity_step"];
-    [self updateOpacity];
-}
-- (void)updateCameraMode {
-    [_cameraButton setTitle:(_cameraSwipe ? @"CAM:SWIPE" : @"CAM:STICK") forState:UIControlStateNormal];
-    _right.hidden = _controlsHidden || _cameraSwipe;
-    if (_editing && !_controlsHidden) _right.hidden = NO;
-    [self applyVisibilityV44];
-}
-- (void)toggleCamera:(id)sender {
-    (void)sender;
-    _cameraSwipe = !_cameraSwipe;
-    [_right resetInput];
-    [_cameraFinger release]; _cameraFinger = nil;
-    atomic_store_explicit(&s_lastSwipeMs, 0, memory_order_relaxed);
-    [[NSUserDefaults standardUserDefaults] setBool:_cameraSwipe forKey:@"mhgu_touch_camera_swipe"];
-    [self updateCameraMode];
-}
 - (void)updateArtsMapping {
     uint64_t masks[3];
     if (_artsType3) {
@@ -1082,95 +1164,72 @@ static void mhgu_style_menu(UIButton *button) {
         masks[2] = UINT64_C(1) << BTN_DOWN;
     }
     for (int i = 0; i < 3; i++) [_arts[i] setMask:masks[i]];
-    [_artsButton setTitle:(_artsType3 ? @"ART:TYPE3" : @"ART:TYPE1") forState:UIControlStateNormal];
-}
-- (void)toggleArts:(id)sender {
-    (void)sender;
-    _artsType3 = !_artsType3;
-    [[NSUserDefaults standardUserDefaults] setBool:_artsType3 forKey:@"mhgu_touch_arts_type3"];
-    [self updateArtsMapping];
 }
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
-    (void)event;
     if (_editing) {
         if (_editFinger) return;
-        UITouch *t = [touches anyObject];
-        if (!t) return;
-        CGPoint p = [t locationInView:self];
-        _selectedControl = nil;
-        for (UIView *v in [_controls reverseObjectEnumerator]) {
-            if (v.hidden) continue;
-            if (CGRectContainsPoint(CGRectInset(v.frame, -13, -13), p)) {
-                _selectedControl = v;
+        UITouch *touch = [touches anyObject];
+        if (!touch) return;
+        CGPoint point = [touch locationInView:self];
+        UIView *selected = _selectedControl;
+        if (!selected || !CGRectContainsPoint(selected.frame, point)) {
+            selected = nil;
+            for (UIView *view in [_controls reverseObjectEnumerator]) {
+                if (view.hidden || !CGRectContainsPoint(view.frame, point)) continue;
+                selected = view;
                 break;
             }
         }
-        if (_selectedControl) {
-            _editFinger = [t retain];
-            _editPoint = p;
-            _selectedControl.layer.borderColor = [UIColor cyanColor].CGColor;
-            _selectedControl.layer.borderWidth = 3.0;
+        _selectedControl = selected;
+        [self applyVisibilityV44];
+        [self updateSelection];
+        if (selected) {
+            _editFinger = [touch retain];
+            _editPoint = point;
         }
         return;
     }
-    // Independent, persistent ownership: joystick/button/camera fingers can
-    // overlap in time without UIKit cancelling a sibling gameplay view.
-    // The topmost visible control wins at touch-down, never mid-drag.
-    NSMutableArray *emptyTouchesV441 = [NSMutableArray array];
+    if (_settingsOpen || _controlsHidden) return;
+
+    UITouch *cameraTouch = nil;
     for (UITouch *finger in touches) {
-        CGPoint p = [finger locationInView:self];
-        UIView *target = nil;
-        for (UIView *v in [_controls reverseObjectEnumerator]) {
-            if (v.hidden || !v.userInteractionEnabled || v.alpha < .03) continue;
-            BOOL native = [v isKindOfClass:[MHGUTouchButton class]] ||
-                          [v isKindOfClass:[MHGUTouchStick class]] ||
-                          [v isKindOfClass:[MHGUTouchItemStrip class]];
-            BOOL item = v == _itemPrevV44 || v == _itemUseV44 || v == _itemNextV44;
-            if ((native || item) && CGRectContainsPoint(v.frame, p)) { target = v; break; }
-        }
-        if (target) {
+        CGPoint point = [finger locationInView:self];
+        UIView *target = [super hitTest:point withEvent:event];
+        if (target && [_controls containsObject:target]) {
+            BOOL item = [target isKindOfClass:[UIButton class]];
+            BOOL alreadyHeld = item && [_touchOwnersV441 allKeysForObject:target].count != 0;
             [_touchOwnersV441 setObject:target forKey:[NSValue valueWithNonretainedObject:finger]];
-            if ([target isKindOfClass:[UIButton class]]) {
-                [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchDown];
-            } else {
-                [target touchesBegan:[NSSet setWithObject:finger] withEvent:event];
+            if (!item) [target touchesBegan:[NSSet setWithObject:finger] withEvent:event];
+            else if (!alreadyHeld) {
+                UIButton *button = (UIButton *)target;
+                button.highlighted = YES;
+                [button sendActionsForControlEvents:UIControlEventTouchDown];
             }
-        } else {
-            [emptyTouchesV441 addObject:finger];
+        } else if (target == self && !cameraTouch && point.x > self.bounds.size.width * .25) {
+            cameraTouch = finger;
         }
     }
-    if (_touchOwnersV441.count >= 2 && _touchOwnersV441.count <= 4) {
-        NSLog(@"[MHGU Touch] simultaneously routed %lu control fingers, MOVE=%d,%d",
-              (unsigned long)_touchOwnersV441.count,
-              atomic_load_explicit(&s_lx, memory_order_relaxed),
-              atomic_load_explicit(&s_ly, memory_order_relaxed));
-    }
-    if (_controlsHidden || !_cameraSwipe || _cameraFinger) return;
-    UITouch *finger = [emptyTouchesV441 firstObject];
-    if (!finger) return;
-    if (finger.tapCount >= 2) {
-        // A double tap in the open camera area taps L to recenter/target.
+    if (!_cameraSwipe || _cameraFinger || !cameraTouch) return;
+    if (cameraTouch.tapCount >= 2) {
         atomic_store_explicit(&s_centerCameraUntilMs, mhgu_now_ms() + 100, memory_order_relaxed);
         return;
     }
-    _cameraFinger = [finger retain];
-    _cameraPoint = [finger locationInView:self];
+    _cameraFinger = [cameraTouch retain];
+    _cameraPoint = [cameraTouch locationInView:self];
 }
+
 - (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
     (void)event;
     if (_editing) {
         if (_editFinger && [touches containsObject:_editFinger] && _selectedControl) {
             CGPoint p = [_editFinger locationInView:self];
-            CGFloat halfW = _selectedControl.bounds.size.width / 2.0;
-            CGFloat halfH = _selectedControl.bounds.size.height / 2.0;
-            CGPoint c = _selectedControl.center;
-            CGRect safeRect = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
-            if (CGRectIsEmpty(safeRect)) safeRect = self.bounds;
-            c.x = MAX(CGRectGetMinX(safeRect) + halfW,
-                      MIN(CGRectGetMaxX(safeRect) - halfW, c.x + p.x - _editPoint.x));
-            c.y = MAX(CGRectGetMinY(safeRect) + halfH,
-                      MIN(CGRectGetMaxY(safeRect) - halfH, c.y + p.y - _editPoint.y));
-            _selectedControl.center = c;
+            CGPoint center = _selectedControl.center;
+            center.x += p.x - _editPoint.x;
+            center.y += p.y - _editPoint.y;
+            [self placeView:_selectedControl center:center size:_selectedControl.bounds.size
+                     inRect:[self safeControlRect]];
+            [self rememberSelectedPlacement];
+            [self updateSelection];
             _editPoint = p;
         }
         return;
@@ -1195,200 +1254,147 @@ static void mhgu_style_menu(UIButton *button) {
     atomic_store_explicit(&s_swipeRy, ay, memory_order_relaxed);
     atomic_store_explicit(&s_lastSwipeMs, mhgu_now_ms(), memory_order_relaxed);
 }
-- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
-    (void)event;
-    if (_editing && _editFinger && [touches containsObject:_editFinger]) {
-        [self saveLayout];
-        if (_selectedControl) {
-            _selectedControl.layer.borderColor = [hudGold() colorWithAlphaComponent:.85].CGColor;
-            _selectedControl.layer.borderWidth = 1.5;
+- (void)releaseCameraTouch {
+    [_cameraFinger release];
+    _cameraFinger = nil;
+    atomic_store_explicit(&s_lastSwipeMs, 0, memory_order_relaxed);
+    atomic_store_explicit(&s_swipeRx, 0, memory_order_relaxed);
+    atomic_store_explicit(&s_swipeRy, 0, memory_order_relaxed);
+}
+
+- (void)finishTouches:(NSSet *)touches withEvent:(UIEvent *)event cancelled:(BOOL)cancelled {
+    if (_editing) {
+        if (_editFinger && [touches containsObject:_editFinger]) {
+            [self rememberSelectedPlacement];
+            [_editFinger release];
+            _editFinger = nil;
         }
-        [_editFinger release]; _editFinger = nil;
         return;
     }
     for (UITouch *finger in touches) {
         NSValue *key = [NSValue valueWithNonretainedObject:finger];
         UIView *target = [_touchOwnersV441 objectForKey:key];
         if (!target) continue;
+        // The view hierarchy retains the target after removing its owner.
+        [_touchOwnersV441 removeObjectForKey:key];
         if ([target isKindOfClass:[UIButton class]]) {
-            [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
+            if ([_touchOwnersV441 allKeysForObject:target].count == 0) {
+                UIButton *button = (UIButton *)target;
+                button.highlighted = NO;
+                UIControlEvents action = cancelled ? UIControlEventTouchCancel : UIControlEventTouchUpInside;
+                [button sendActionsForControlEvents:action];
+            }
+        } else if (cancelled) {
+            [target touchesCancelled:[NSSet setWithObject:finger] withEvent:event];
         } else {
             [target touchesEnded:[NSSet setWithObject:finger] withEvent:event];
         }
-        [_touchOwnersV441 removeObjectForKey:key];
     }
-    if (_cameraFinger && [touches containsObject:_cameraFinger]) {
-        [_cameraFinger release]; _cameraFinger = nil;
-        atomic_store_explicit(&s_lastSwipeMs, 0, memory_order_relaxed);
-        atomic_store_explicit(&s_swipeRx, 0, memory_order_relaxed);
-        atomic_store_explicit(&s_swipeRy, 0, memory_order_relaxed);
-    }
+    if (_cameraFinger && [touches containsObject:_cameraFinger]) [self releaseCameraTouch];
+}
+- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+    [self finishTouches:touches withEvent:event cancelled:NO];
 }
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
-    if (_editing) {
-        [self touchesEnded:touches withEvent:event];
-        return;
-    }
-    for (UITouch *finger in touches) {
-        NSValue *key = [NSValue valueWithNonretainedObject:finger];
-        UIView *target = [_touchOwnersV441 objectForKey:key];
-        if (!target) continue;
-        if ([target isKindOfClass:[UIButton class]]) {
-            [(UIButton *)target sendActionsForControlEvents:UIControlEventTouchCancel];
-        } else {
-            [target touchesCancelled:[NSSet setWithObject:finger] withEvent:event];
-        }
-        [_touchOwnersV441 removeObjectForKey:key];
-    }
-    // End the camera pointer without generating a gameplay button press.
-    [self touchesEnded:touches withEvent:event];
+    [self finishTouches:touches withEvent:event cancelled:YES];
 }
 - (void)controllerChanged:(NSNotification *)notification {
     (void)notification;
-    // Native gamepads keep working through SDL3. The UI automatically hides for them.
-    [self setControlsVisible:([GCController controllers].count == 0)];
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self refreshControlsVisibility]; });
+        return;
+    }
+    [self refreshControlsVisibility];
 }
-- (void)place:(UIView *)view center:(CGPoint)center diameter:(CGFloat)diameter {
-    // Keep control hit targets in the actual safe viewport (notch / Dynamic Island / home bar).
-    UIEdgeInsets insets = self.safeAreaInsets;
-    CGRect r = UIEdgeInsetsInsetRect(self.bounds, insets);
-    if (CGRectIsEmpty(r)) r = self.bounds;
-    CGFloat radius = diameter * .5;
-    center.x = MAX(CGRectGetMinX(r) + radius, MIN(CGRectGetMaxX(r) - radius, center.x));
-    center.y = MAX(CGRectGetMinY(r) + radius, MIN(CGRectGetMaxY(r) - radius, center.y));
-    view.bounds = CGRectMake(0, 0, diameter, diameter);
+
+- (CGRect)safeControlRect {
+    CGRect safe = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+    return CGRectIsEmpty(safe) ? self.bounds : safe;
+}
+
+- (void)placeView:(UIView *)view center:(CGPoint)center size:(CGSize)size inRect:(CGRect)safe {
+    if (size.width <= 0 || size.height <= 0 || CGRectIsEmpty(safe)) return;
+    CGFloat fit = MIN(1, MIN(safe.size.width / size.width, safe.size.height / size.height));
+    size.width *= fit;
+    size.height *= fit;
+    CGFloat halfW = size.width / 2, halfH = size.height / 2;
+    center.x = MAX(CGRectGetMinX(safe) + halfW, MIN(CGRectGetMaxX(safe) - halfW, center.x));
+    center.y = MAX(CGRectGetMinY(safe) + halfH, MIN(CGRectGetMaxY(safe) - halfH, center.y));
+    view.bounds = (CGRect){CGPointZero, size};
     view.center = center;
 }
+
 - (void)safeAreaInsetsDidChange {
     [super safeAreaInsetsDidChange];
     [self setNeedsLayout];
 }
+
+- (void)layoutGameplayInRect:(CGRect)safe {
+    // Place grouped controls in points so the middle of the game stays clear.
+    CGFloat scale = MIN(1.35, MIN(safe.size.width / 650.0, safe.size.height / 338.0));
+    CGFloat x = CGRectGetMinX(safe), y = CGRectGetMinY(safe);
+    CGFloat right = safe.size.width / scale;
+    CGFloat bottom = safe.size.height / scale;
+    CGFloat mid = right / 2;
+    CGFloat aimX = _profileV44 == 1 ? right - 124 : right - 115;
+    struct { UIView *view; CGFloat x, y, w, h; } positions[] = {
+        {_settingsButton, 27, 28, 44, 44},
+        {_button[BTN_L], 80, 28, 46, 42}, {_button[BTN_ZL], 132, 28, 46, 42},
+        {_button[BTN_R], right - 29, 28, 46, 42}, {_button[BTN_ZR], right - 81, 28, 46, 42},
+        {_button[BTN_MINUS], mid - 27, 28, 43, 42}, {_button[BTN_PLUS], mid + 27, 28, 43, 42},
+
+        {_left, 60, bottom - 60, 100, 100},
+        {_right, right - 200, bottom - 64, 94, 94},
+        {_button[BTN_UP], 169, bottom - 101, 38, 38},
+        {_button[BTN_DOWN], 169, bottom - 25, 38, 38},
+        {_button[BTN_LEFT], 131, bottom - 63, 38, 38},
+        {_button[BTN_RIGHT], 207, bottom - 63, 38, 38},
+        {_button[BTN_LSTICK], 61, bottom - 134, 40, 38},
+        {_button[BTN_RSTICK], right - 214, bottom - 138, 40, 38},
+
+        {_button[BTN_A], right - 34, bottom - 94, 52, 52},
+        {_button[BTN_B], right - 54, bottom - 38, 50, 50},
+        {_button[BTN_X], right - 89, bottom - 137, 48, 48},
+        {_button[BTN_Y], right - 113, bottom - 86, 44, 44},
+        {_fire, right - 34, bottom - 94, 56, 54},
+        {_aim, aimX, bottom - 90, 48, 44},
+        {_reload, right - 89, bottom - 140, 47, 43},
+        {_special, right - 141, bottom - 143, 47, 40},
+        {_ammoDown, mid + 55, 84, 45, 38}, {_ammoUp, mid + 106, 84, 45, 38},
+
+        {_combo[0], mid - 72, 84, 44, 38}, {_combo[1], mid - 23, 84, 44, 38},
+        {_arts[0], right - 131, 84, 43, 38}, {_arts[1], right - 82, 84, 43, 38},
+        {_arts[2], right - 33, 84, 43, 38},
+        {_itemPrevV44, mid - 52, bottom - 27, 43, 39},
+        {_itemUseV44, mid, bottom - 27, 54, 39},
+        {_itemNextV44, mid + 52, bottom - 27, 43, 39},
+        {_itemStrip, mid, bottom - 72, 148, 34},
+    };
+    for (NSUInteger i = 0; i < sizeof positions / sizeof positions[0]; i++) {
+        CGPoint center = CGPointMake(x + positions[i].x * scale, y + positions[i].y * scale);
+        CGSize size = CGSizeMake(positions[i].w * scale, positions[i].h * scale);
+        [self placeView:positions[i].view center:center size:size inRect:safe];
+    }
+    _hudLabelV44.font = [UIFont monospacedDigitSystemFontOfSize:9.2 * scale weight:UIFontWeightSemibold];
+    _hudLabelV44.frame = CGRectMake(x + 8 * scale, y + 61 * scale, 220 * scale, 42 * scale);
+}
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
-    if (w < 100 || h < 100) return;
-    UIEdgeInsets safe = self.safeAreaInsets;
-    CGFloat availW = MAX(100, w - safe.left - safe.right);
-    CGFloat availH = MAX(100, h - safe.top - safe.bottom);
-    // Points, not pixels: modern phones have 3x Retina scale. Responsive to small iPhones.
-    CGFloat scale = fmin(1.15, fmax(.78, availH / 355.0));
-    if (availW < 620) scale *= fmax(.78, availW / 620.0);
-    CGFloat button = 53 * scale, mini = 40 * scale, stick = 120 * scale;
-    CGFloat y = h - safe.bottom - 17 * scale - stick * .5;
-    CGFloat leftX = safe.left + 16 * scale + stick * .5;
-    CGFloat dX = leftX + 149 * scale;
-    CGFloat faceX = w - safe.right - 76 * scale;
-    CGFloat rightX = faceX - 147 * scale;
-    // iPhone SE / unusual rotation: distribute d-pad and camera stick symmetrically.
-    if (rightX - dX < stick * 1.12) {
-        CGFloat correction = (stick * 1.12 - (rightX - dX)) / 2;
-        dX -= correction;
-        rightX += correction;
-    }
-    [self place:_left center:CGPointMake(leftX, y) diameter:stick];
-    [self place:_right center:CGPointMake(rightX, y) diameter:stick];
-    CGFloat spread = 50 * scale;
-    [self place:_button[BTN_UP] center:CGPointMake(dX, y - spread) diameter:mini];
-    [self place:_button[BTN_DOWN] center:CGPointMake(dX, y + spread) diameter:mini];
-    [self place:_button[BTN_LEFT] center:CGPointMake(dX - spread, y) diameter:mini];
-    [self place:_button[BTN_RIGHT] center:CGPointMake(dX + spread, y) diameter:mini];
-    // Android-inspired combat cluster: heavy A, light X, evade B, sheathe Y.
-    [self place:_button[BTN_X] center:CGPointMake(faceX - 12 * scale, y - 61 * scale) diameter:button];
-    [self place:_button[BTN_A] center:CGPointMake(faceX + 19 * scale, y - 6 * scale) diameter:button];
-    [self place:_button[BTN_B] center:CGPointMake(faceX - 2 * scale, y + 57 * scale) diameter:button];
-    [self place:_button[BTN_Y] center:CGPointMake(faceX - 75 * scale, y - 10 * scale) diameter:mini];
-
-    CGFloat topY = safe.top + 14 * scale + mini / 2;
-    CGFloat l = safe.left + 12 * scale + mini / 2;
-    CGFloat r = w - safe.right - 12 * scale - mini / 2;
-    [self place:_button[BTN_L] center:CGPointMake(l, topY) diameter:mini];
-    [self place:_button[BTN_ZL] center:CGPointMake(l + 43 * scale, topY) diameter:mini];
-    [self place:_button[BTN_R] center:CGPointMake(r - 43 * scale, topY) diameter:mini];
-    [self place:_button[BTN_ZR] center:CGPointMake(r, topY) diameter:mini];
-    CGFloat mid = w * .5;
-    [self place:_button[BTN_MINUS] center:CGPointMake(mid - 41 * scale, topY) diameter:mini];
-    [self place:_button[BTN_PLUS] center:CGPointMake(mid + 41 * scale, topY) diameter:mini];
-    [self place:_button[BTN_LSTICK] center:CGPointMake(mid - 111 * scale, topY) diameter:mini];
-    [self place:_button[BTN_RSTICK] center:CGPointMake(mid + 111 * scale, topY) diameter:mini];
-
-    // Small permanent gear; the settings grid is hidden unless opened.
-    CGFloat gearX = safe.left + 10 * scale;
-    CGFloat gearY = safe.top + 66 * scale;
-    _settingsButton.frame = CGRectMake(gearX, gearY, 43 * scale, 37 * scale);
-    CGFloat panelX = gearX + 49 * scale;
-    CGFloat panelY = gearY;
-    CGFloat gutter = 5 * scale;
-    CGFloat panelW = fmin(112 * scale, (w - safe.right - panelX - 12 * scale) * .47);
-    CGFloat panelH = 27 * scale;
-    NSArray *panel = @[_showButton, _cameraButton, _artsButton,
-                       _weaponModeButton, _lockButton, _editButton, _fpsButton,
-                       _comboEdit[0], _comboEdit[1], _profileButtonV44,
-                       _editorButtonV44, _hudButtonV44];
-    for (NSUInteger i = 0; i < panel.count; i++) {
-        UIButton *b = [panel objectAtIndex:i];
-        b.frame = CGRectMake(panelX + (i % 2) * (panelW + gutter),
-                             panelY + (i / 2) * (panelH + gutter), panelW, panelH);
-    }
-    CGFloat slidersY = panelY + 6 * (panelH + gutter);
-    _alphaButton.frame = CGRectMake(panelX, slidersY, panelW * .9, panelH);
-    _opacitySlider.frame = CGRectMake(panelX + panelW + gutter, slidersY, panelW, panelH);
-    _sensitivityText.frame = CGRectMake(panelX, slidersY + panelH + gutter, panelW, panelH);
-    _sensitivitySlider.frame = CGRectMake(panelX + panelW + gutter,
-                                          slidersY + panelH + gutter, panelW, panelH);
-    _sizeMinus.frame = CGRectMake(panelX, panelY + 8 * (panelH + gutter), panelW * .73, panelH);
-    _sizePlus.frame = CGRectMake(panelX + panelW * .77, panelY + 8 * (panelH + gutter), panelW * .73, panelH);
-    _resetLayout.frame = CGRectMake(panelX + (panelW + gutter) * 1.55,
-                                    panelY + 8 * (panelH + gutter), panelW * .65, panelH);
-
-    // Independently draggable combo slots; two masks can be held with either stick.
-    [self place:_combo[0] center:CGPointMake(mid - 30 * scale, topY + 64 * scale) diameter:44 * scale];
-    [self place:_combo[1] center:CGPointMake(mid + 30 * scale, topY + 64 * scale) diameter:44 * scale];
-    CGFloat itemY = h - safe.bottom - 27 * scale;
-    _itemStrip.frame = CGRectMake(mid - 91 * scale, itemY - 76 * scale, 182 * scale, 35 * scale);
-    CGFloat itemGapV44 = 49 * scale;
-    NSArray *itemsV44 = @[_itemPrevV44, _itemUseV44, _itemNextV44];
-    for (NSUInteger i=0; i<3; i++) {
-        UIButton *b = [itemsV44 objectAtIndex:i];
-        b.bounds = CGRectMake(0, 0, 46 * scale, 36 * scale);
-        b.center = CGPointMake(mid + ((NSInteger)i - 1) * itemGapV44, itemY);
-    }
-    [self place:_fire center:CGPointMake(faceX, y - 15 * scale) diameter:72 * scale];
-    [self place:_reload center:CGPointMake(faceX - 85 * scale, y + 38 * scale) diameter:48 * scale];
-    [self place:_aim center:CGPointMake(faceX - 95 * scale, y - 45 * scale) diameter:49 * scale];
-    [self place:_special center:CGPointMake(faceX - 55 * scale, y - 102 * scale) diameter:44 * scale];
-    [self place:_ammoUp center:CGPointMake(mid + 115 * scale, itemY - 34 * scale) diameter:38 * scale];
-    [self place:_ammoDown center:CGPointMake(mid + 115 * scale, itemY + 19 * scale) diameter:38 * scale];
-    CGFloat artY = safe.top + 93 * scale;
-    CGFloat artX = w - safe.right - 152 * scale;
-    for (int i = 0; i < 3; i++)
-        [self place:_arts[i] center:CGPointMake(artX + i * 48 * scale, artY) diameter:41 * scale];
+    CGRect safe = [self safeControlRect];
+    if (safe.size.width < 100 || safe.size.height < 100) return;
+    [self layoutGameplayInRect:safe];
     [self applyCustomLayout];
-    [self updateRangedVisibility];
-    [self updateMenuVisibility];
-    [self updateEditorLayoutV44];
-    _hudLabelV44.frame = CGRectMake(safe.left + 10 * scale, safe.top + 112 * scale,
-                                  MIN(335 * scale, availW - 20 * scale), 37 * scale);
-}
-- (void)updateRangedVisibility {
-    BOOL ranged = _weaponKind != 0;
-    for (UIView *v in @[_fire, _reload, _aim, _special, _ammoUp, _ammoDown])
-        v.hidden = _controlsHidden || (!ranged && !_editing);
-    for (int bit=BTN_A; bit<=BTN_Y; bit++)
-        _button[bit].hidden = _controlsHidden || (ranged && !_editing);
-    if (_editing) {
-        for (UIView *v in _controls) v.hidden = _controlsHidden ? YES : NO;
-        [self updateCameraMode];
-    }
-    [self applyVisibilityV44];
+    [self layoutToolsInRect:safe];
 }
 - (void)syncWeapon {
     uint64_t now = mhgu_now_ms();
-    if (now - s_lastWeaponPollMs < 160 && _weaponSetting == 0) return;
+    if (s_lastWeaponPollMs && now - s_lastWeaponPollMs < 160) return;
     s_lastWeaponPollMs = now;
     int detectedDrawn = -1, detectedBowType = 0;
-    int detected = mhgu_touch_detect_weapon(&detectedDrawn, &detectedBowType);
+    int detected = _weaponSetting == 3 ? 0 : mhgu_touch_detect_weapon(&detectedDrawn, &detectedBowType);
     int kind = _weaponSetting == 0 ? detected : (_weaponSetting == 1 ? 2 : _weaponSetting == 2 ? 1 : 0);
     if (kind == _weaponKind && detectedDrawn == _drawn && detectedBowType == _bowType) return;
+    BOOL rangedChanged = (kind != 0) != (_weaponKind != 0);
     _weaponKind = kind; _drawn = detectedDrawn; _bowType = detectedBowType;
     // MHGU 1.4.0: bowgun A fires, X reloads, R aims; bow X charges
     // (Bow Controls Type 2 reverses R and X); sheathed X draws the weapon.
@@ -1398,350 +1404,393 @@ static void mhgu_style_menu(UIButton *button) {
     [_fire setMask:fire];
     [_reload setMask:UINT64_C(1) << ((_weaponKind == 1 || _drawn == 0) ? BTN_A : BTN_X)];
     [_aim setMask:aim];
-    [self updateRangedVisibility];
-}
-- (void)toggleWeapon:(id)sender {
-    (void)sender;
-    _weaponSetting = (_weaponSetting + 1) % 4;
-    [[NSUserDefaults standardUserDefaults] setInteger:_weaponSetting forKey:@"mhgu_touch_weapon_setting"];
-    NSArray *names = @[@"WEAPON:AUTO", @"WEAPON:GUN", @"WEAPON:BOW", @"WEAPON:NORM"];
-    [_weaponModeButton setTitle:[names objectAtIndex:_weaponSetting] forState:UIControlStateNormal];
-    s_lastWeaponPollMs = 0;
-    [self syncWeapon];
-}
-- (void)toggleLock:(id)sender {
-    (void)sender;
-    if (!mhgu_touch_lock_available()) {
-        [_lockButton setTitle:@"LOCK:N/A" forState:UIControlStateNormal];
-        return;
-    }
-    _lockOn = !_lockOn;
-    mhgu_touch_lock_enable(_lockOn);
-    [_lockButton setTitle:(_lockOn ? @"LOCK:ON" : @"LOCK:OFF") forState:UIControlStateNormal];
+    if (rangedChanged) [self applyVisibilityV44];
 }
 - (void)applyCustomLayout {
-    CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
-    if (w <= 0 || h <= 0) return;
+    CGFloat width = self.bounds.size.width, height = self.bounds.size.height;
+    if (width <= 0 || height <= 0) return;
+    CGRect safe = [self safeControlRect];
     for (NSString *key in _customLayout) {
-        UIView *v = [_namedControls objectForKey:key];
-        NSArray *a = [_customLayout objectForKey:key];
-        if (!v || ![a isKindOfClass:[NSArray class]] || a.count != 4) continue;
-        BOOL landscape = w >= h;
-        if ([[a objectAtIndex:3] boolValue] != landscape) continue;
-        CGFloat diameter = MAX(26, MIN(h * .42, [[a objectAtIndex:2] doubleValue] * h));
-        if (v == _itemStrip) {
-            v.bounds = CGRectMake(0, 0, diameter * 4.43, diameter);
-        } else {
-            v.bounds = CGRectMake(0, 0, diameter, diameter);
+        UIView *view = [_namedControls objectForKey:key];
+        NSArray *saved = [_customLayout objectForKey:key];
+        if (!view || ![saved isKindOfClass:[NSArray class]] || saved.count != 4) continue;
+        BOOL valid = YES;
+        for (id value in saved) {
+            if ([value isKindOfClass:[NSNumber class]] && isfinite([value doubleValue])) continue;
+            valid = NO;
+            break;
         }
-        CGFloat cx = [[a objectAtIndex:0] doubleValue] * w;
-        CGFloat cy = [[a objectAtIndex:1] doubleValue] * h;
-        CGRect safeRect = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
-        if (CGRectIsEmpty(safeRect)) safeRect = self.bounds;
-        CGFloat hw = v.bounds.size.width * .5, hh = v.bounds.size.height * .5;
-        v.center = CGPointMake(MAX(CGRectGetMinX(safeRect)+hw, MIN(CGRectGetMaxX(safeRect)-hw,cx)),
-                               MAX(CGRectGetMinY(safeRect)+hh,MIN(CGRectGetMaxY(safeRect)-hh,cy)));
+        if (!valid || [[saved objectAtIndex:3] boolValue] != (width >= height)) continue;
+        CGSize initialSize = view.bounds.size;
+        if (initialSize.height <= 0) continue;
+        CGFloat size = MAX(26, MIN(safe.size.height * .42, [[saved objectAtIndex:2] doubleValue] * height));
+        CGPoint center = CGPointMake([[saved objectAtIndex:0] doubleValue] * width,
+                                     [[saved objectAtIndex:1] doubleValue] * height);
+        [self placeView:view center:center size:CGSizeMake(size * initialSize.width/initialSize.height, size)
+                 inRect:safe];
     }
 }
-- (void)saveLayout {
+
+- (void)rememberSelectedPlacement {
     if (!_selectedControl) return;
-    NSString *name = [[_namedControls allKeysForObject:_selectedControl] firstObject];
-    CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
-    if (!name || w <= 0 || h <= 0) return;
-    NSArray *a = @[@(_selectedControl.center.x/w), @(_selectedControl.center.y/h),
-                   @(_selectedControl.bounds.size.height/h), @(w >= h)];
-    [_customLayout setObject:a forKey:name];
-    NSUserDefaults *p = [NSUserDefaults standardUserDefaults];
-    [p setObject:_customLayout forKey:[self profileStorageKeyV44:@"layout"]];
-    if (_profileV44 == 2) [p setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
+    NSString *key = [[_namedControls allKeysForObject:_selectedControl] firstObject];
+    CGFloat width = self.bounds.size.width, height = self.bounds.size.height;
+    if (!key || width <= 0 || height <= 0) return;
+    [_customLayout setObject:@[@(_selectedControl.center.x/width), @(_selectedControl.center.y/height),
+        @(_selectedControl.bounds.size.height/height), @(width >= height)] forKey:key];
 }
-- (void)toggleEdit:(id)sender {
-    (void)sender;
-    _editing = !_editing;
-    if (_editing) [self resetAll];
-    [self saveLayout];
-    [_editFinger release]; _editFinger = nil;
-    _selectedControl = nil;
-    [_editButton setTitle:(_editing ? @"SAVE / DONE" : @"EDIT") forState:UIControlStateNormal];
-    [self updateMenuVisibility];
-    for (UIView *v in _controls) v.userInteractionEnabled = !_editing;
-    [self updateRangedVisibility];
-    [self updateCameraMode];
+
+- (void)updateSelection {
+    NSString *key = _selectedControl ? [[_namedControls allKeysForObject:_selectedControl] firstObject] : nil;
+    _selectionOutline.hidden = !_editing || !key;
+    _layoutSmaller.enabled = _editing && key != nil;
+    _layoutLarger.enabled = _layoutSmaller.enabled;
+    if (key) {
+        _selectionOutline.frame = CGRectInset(_selectedControl.frame, -3, -3);
+        _layoutSelection.text = [NSString stringWithFormat:@"%@  ·  %.0f pt", [self controlTitle:key],
+                                 _selectedControl.bounds.size.height];
+    } else {
+        _layoutSelection.text = @"Drag a control to move it";
+    }
+}
+
+- (void)beginLayoutForControl:(NSString *)key {
+    if (_editing) return;
+    [self setSettingsOpen:NO];
+    [self resetAll];
+    _layoutBeforeEdit = [_customLayout copy];
+    _editing = YES;
+    _layoutToolbar.hidden = NO;
+    _settingsButton.hidden = YES;
+    for (UIView *view in _controls) view.userInteractionEnabled = NO;
+    _selectedControl = key ? [_namedControls objectForKey:key] : nil;
+    [self applyVisibilityV44];
+    [self updateOpacity];
     [self setNeedsLayout];
+    [self layoutIfNeeded];
 }
-- (void)resizeSelectedBy:(CGFloat)factor {
-    if (!_editing || !_selectedControl) return;
-    CGSize sz = _selectedControl.bounds.size;
-    CGFloat size = MAX(26, MIN(self.bounds.size.height * .42, sz.height * factor));
-    CGFloat aspect = sz.width / MAX(1, sz.height);
-    _selectedControl.bounds = CGRectMake(0,0,size*aspect,size);
-    [self saveLayout];
+
+- (void)openLayoutEditor:(id)sender { (void)sender; [self beginLayoutForControl:nil]; }
+- (void)moveSelectedControl:(id)sender { (void)sender; [self beginLayoutForControl:_settingsControlKey]; }
+
+- (void)finishLayoutSaving:(BOOL)save {
+    if (!_editing) return;
+    if (save) [self saveProfileV44];
+    else [_customLayout setDictionary:_layoutBeforeEdit];
+    [_layoutBeforeEdit release];
+    _layoutBeforeEdit = nil;
+    [_editFinger release];
+    _editFinger = nil;
+    _selectedControl = nil;
+    _editing = NO;
+    _layoutToolbar.hidden = YES;
+    [self updateSelection];
+    for (UIView *view in _controls) view.userInteractionEnabled = YES;
+    [self applyVisibilityV44];
+    [self updateOpacity];
+    [self setNeedsLayout];
+    [self layoutIfNeeded];
+    [self setSettingsOpen:YES];
 }
-- (void)shrinkSelected:(id)sender { (void)sender; [self resizeSelectedBy:.90]; }
-- (void)growSelected:(id)sender { (void)sender; [self resizeSelectedBy:1.10]; }
+
+- (void)saveLayout:(id)sender { (void)sender; [self finishLayoutSaving:YES]; }
+- (void)cancelLayout:(id)sender { (void)sender; [self finishLayoutSaving:NO]; }
 - (void)resetLayout:(id)sender {
     (void)sender;
     [_customLayout removeAllObjects];
-    NSUserDefaults *p = [NSUserDefaults standardUserDefaults];
-    [p removeObjectForKey:[self profileStorageKeyV44:@"layout"]];
-    if (_profileV44 == 2) [p removeObjectForKey:@"mhgu_touch_layout_v3"];
+    [_editFinger release];
+    _editFinger = nil;
     [self setNeedsLayout];
+    [self layoutIfNeeded];
 }
-// --------------------------------------------------------------
-// MHGU V4.4: isolated UIKit control profiles and workshop
+- (void)moveLayoutToolbar:(id)sender {
+    (void)sender;
+    _layoutDockBottom = !_layoutDockBottom;
+    [self layoutToolsInRect:[self safeControlRect]];
+}
+- (void)resizeSelectedBy:(CGFloat)factor {
+    if (!_editing || !_selectedControl) return;
+    CGSize current = _selectedControl.bounds.size;
+    if (current.height <= 0) return;
+    CGRect safe = [self safeControlRect];
+    CGFloat height = MAX(26, MIN(safe.size.height * .42, current.height * factor));
+    [self placeView:_selectedControl center:_selectedControl.center
+               size:CGSizeMake(current.width/current.height * height, height) inRect:safe];
+    [self rememberSelectedPlacement];
+    [self updateSelection];
+}
+- (void)shrinkSelected:(id)sender { (void)sender; [self resizeSelectedBy:.9]; }
+- (void)growSelected:(id)sender { (void)sender; [self resizeSelectedBy:1.1]; }
+
 - (NSString *)profileStorageKeyV44:(NSString *)kind {
     return [NSString stringWithFormat:@"mhgu_touch_%@_profile_v44_%ld", kind, (long)_profileV44];
 }
 - (void)saveProfileV44 {
-    NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
-    [prefs setObject:_customLayout forKey:[self profileStorageKeyV44:@"layout"]];
-    [prefs setObject:[[_hiddenV44 allObjects] sortedArrayUsingSelector:@selector(compare:)]
-             forKey:[self profileStorageKeyV44:@"hidden"]];
-    [prefs setObject:_stylesV44 forKey:[self profileStorageKeyV44:@"styles"]];
-    if (_profileV44 == 2) [prefs setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
+    NSUserDefaults *preferences = [NSUserDefaults standardUserDefaults];
+    [preferences setObject:_customLayout forKey:[self profileStorageKeyV44:@"layout"]];
+    [preferences setObject:[[_hiddenV44 allObjects] sortedArrayUsingSelector:@selector(compare:)]
+                    forKey:[self profileStorageKeyV44:@"hidden"]];
+    [preferences setObject:_stylesV44 forKey:[self profileStorageKeyV44:@"styles"]];
+    if (_profileV44 == 2) [preferences setObject:_customLayout forKey:@"mhgu_touch_layout_v3"];
 }
-- (void)updateProfileTitleV44 {
-    NSArray *names = @[@"MELEE", @"RANGED", @"CUSTOM"];
-    [_profileButtonV44 setTitle:[NSString stringWithFormat:@"PROFILE:%@", [names objectAtIndex:_profileV44]]
-                     forState:UIControlStateNormal];
-}
-- (void)cycleProfileV44:(id)sender {
-    (void)sender;
-    if (_editing) [self toggleEdit:nil];
-    [self resetAll];
-    [self saveProfileV44];
-    _profileV44 = (_profileV44 + 1) % 3;
-    [[NSUserDefaults standardUserDefaults] setInteger:_profileV44 forKey:@"mhgu_touch_active_profile_v44"];
-    NSDictionary *layout = [[NSUserDefaults standardUserDefaults] dictionaryForKey:[self profileStorageKeyV44:@"layout"]];
-    if (!layout && _profileV44 == 2)
-        layout = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"mhgu_touch_layout_v3"];
+- (void)reloadProfileV44 {
+    NSUserDefaults *preferences = [NSUserDefaults standardUserDefaults];
+    NSDictionary *layout = [preferences dictionaryForKey:[self profileStorageKeyV44:@"layout"]];
+    if (!layout && _profileV44 == 2) layout = [preferences dictionaryForKey:@"mhgu_touch_layout_v3"];
+    NSArray *hidden = [preferences arrayForKey:[self profileStorageKeyV44:@"hidden"]];
+    NSDictionary *styles = [preferences dictionaryForKey:[self profileStorageKeyV44:@"styles"]];
     [_customLayout release];
-    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:layout ?: @{}];
-    NSArray *hidden = [[NSUserDefaults standardUserDefaults] arrayForKey:[self profileStorageKeyV44:@"hidden"]];
     [_hiddenV44 release];
-    _hiddenV44 = [[NSMutableSet alloc] initWithArray:hidden ?: @[@"ITEM_BAR"]];
-    NSDictionary *styles = [[NSUserDefaults standardUserDefaults] dictionaryForKey:[self profileStorageKeyV44:@"styles"]];
     [_stylesV44 release];
+    _customLayout = [[NSMutableDictionary alloc] initWithDictionary:layout ?: @{}];
+    _hiddenV44 = [[NSMutableSet alloc] initWithArray:hidden ?: @[@"ITEM_BAR"]];
     _stylesV44 = [[NSMutableDictionary alloc] initWithDictionary:styles ?: @{}];
-    [self updateProfileTitleV44];
+}
+- (void)profileChanged:(UISegmentedControl *)sender {
+    NSInteger profile = sender.selectedSegmentIndex;
+    if (profile < 0 || profile > 2 || profile == _profileV44) return;
+    [self resetAll];
+    _profileV44 = profile;
+    [[NSUserDefaults standardUserDefaults] setInteger:profile forKey:@"mhgu_touch_active_profile_v44"];
+    [self reloadProfileV44];
     [self applyStylesV44];
+    [self applyVisibilityV44];
     [self setNeedsLayout];
-    [self layoutIfNeeded];
-    [self updateEditorRowsV44];
+}
+
+- (void)resetControl:(UIView *)view {
+    for (NSValue *owner in [_touchOwnersV441 allKeysForObject:view])
+        [_touchOwnersV441 removeObjectForKey:owner];
+    if ([view isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)view resetInput];
+    else if ([view isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)view resetInput];
+    else if ([view isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)view resetInput];
+    else if ([view isKindOfClass:[UIButton class]]) {
+        UIButton *button = (UIButton *)view;
+        button.highlighted = NO;
+        if (button == _itemPrevV44 || button == _itemNextV44) [self stopItemRepeat:button];
+    }
 }
 - (void)applyVisibilityV44 {
-    if (!_namedControls) return;
     BOOL ranged = _weaponKind != 0;
     for (NSString *key in _namedControls) {
-        UIView *v = [_namedControls objectForKey:key];
+        UIView *view = [_namedControls objectForKey:key];
         BOOL modeHidden = NO;
-        if (v == _right) modeHidden = _cameraSwipe && !_editing;
-        else if (v == _fire || v == _reload || v == _aim || v == _special ||
-                 v == _ammoUp || v == _ammoDown) modeHidden = !ranged && !_editing;
-        else if (v == _button[BTN_A] || v == _button[BTN_B] ||
-                 v == _button[BTN_X] || v == _button[BTN_Y]) modeHidden = ranged && !_editing;
-        // The editor can still find otherwise-hidden controls while repositioning them.
-        v.hidden = _controlsHidden || modeHidden || (!_editing && [_hiddenV44 containsObject:key]);
+        if (view == _right) modeHidden = _cameraSwipe;
+        else if (view == _fire || view == _reload || view == _aim || view == _special ||
+                 view == _ammoUp || view == _ammoDown) modeHidden = !ranged;
+        else if (view == _button[BTN_A] || view == _button[BTN_X] || view == _button[BTN_Y])
+            modeHidden = ranged;
+        // The editor shows the active controls and any button opened from its detail page.
+        // Evade (B) is available for melee, bow and bowgun.
+        BOOL available = !modeHidden && ![_hiddenV44 containsObject:key];
+        BOOL hidden = _editing ? !available && view != _selectedControl : _controlsHidden || !available;
+        if (view.hidden == hidden) continue;
+        if (hidden) [self resetControl:view];
+        view.hidden = hidden;
     }
 }
+
 - (UIColor *)accentForColorV44:(NSInteger)index {
     switch (index) {
-    case 1: return [UIColor colorWithRed:.85 green:.33 blue:.27 alpha:1.0]; // Rathalos ruby
-    case 2: return [UIColor colorWithRed:.27 green:.72 blue:.76 alpha:1.0]; // Lagiacrus teal
-    case 3: return [UIColor colorWithRed:.56 green:.76 blue:.40 alpha:1.0]; // Forest moss
-    case 4: return [UIColor colorWithRed:.77 green:.64 blue:.93 alpha:1.0]; // Mist violet
-    case 5: return [UIColor colorWithRed:.93 green:.90 blue:.79 alpha:1.0]; // Parchment
-    default: return nil; // original gold
+    case 1: return [UIColor colorWithRed:.85 green:.33 blue:.27 alpha:1];
+    case 2: return [UIColor colorWithRed:.27 green:.72 blue:.76 alpha:1];
+    case 3: return [UIColor colorWithRed:.56 green:.76 blue:.40 alpha:1];
+    case 4: return [UIColor colorWithRed:.77 green:.64 blue:.93 alpha:1];
+    case 5: return [UIColor colorWithRed:.93 green:.90 blue:.79 alpha:1];
+    default: return hudGold();
     }
 }
+
+- (NSString *)controlTitle:(NSString *)key {
+    NSDictionary *names = @{
+        @"MOVE":@"Movement stick", @"CAMERA_STICK":@"Camera stick",
+        @"B":@"B · Evade", @"+":@"+ · Start", @"−":@"− · Select",
+        @"▲":@"D-pad up", @"▼":@"D-pad down", @"◀":@"D-pad left", @"▶":@"D-pad right",
+        @"L3":@"Left stick click", @"R3":@"Right stick click",
+        @"FIRE":@"Fire / charge", @"RELOAD":@"Reload", @"AIM":@"Aim", @"SPECIAL":@"Special shot",
+        @"AMMO_UP":@"Next ammo", @"AMMO_DOWN":@"Previous ammo",
+        @"ITEM_PREV":@"Previous item", @"ITEM_USE":@"Use item", @"ITEM_NEXT":@"Next item", @"ITEM_BAR":@"Item swipe bar",
+        @"ART1":@"Hunter Art 1", @"ART2":@"Hunter Art 2", @"ART3":@"Hunter Art 3",
+        @"COMBO_1":@"Combo 1", @"COMBO_2":@"Combo 2",
+    };
+    return [names objectForKey:key] ?: key;
+}
+
+- (NSUInteger)comboSlotForKey:(NSString *)key {
+    if ([key isEqualToString:@"COMBO_1"]) return 0;
+    if ([key isEqualToString:@"COMBO_2"]) return 1;
+    return NSNotFound;
+}
+
 - (NSString *)defaultCaptionV44:(NSString *)key {
-    NSDictionary *symbols = @{@"A":@"✦", @"X":@"✧", @"B":@"↶", @"Y":@"◇",
-                             @"AMMO_UP":@"AMMO+", @"AMMO_DOWN":@"AMMO−",
-                             @"ITEM_PREV":@"◀ ITEM", @"ITEM_NEXT":@"ITEM ▶",
-                             @"ITEM_USE":@"✦ USE", @"ITEM_BAR":@"◀  ITEM  ✦  USE  ▶",
-                             @"CAMERA_STICK":@"CAM", @"COMBO_1":@"A+B", @"COMBO_2":@"R+X"};
-    NSString *label = [symbols objectForKey:key];
-    if ([key isEqualToString:@"COMBO_1"] || [key isEqualToString:@"COMBO_2"]) {
-        NSUInteger slot = [key isEqualToString:@"COMBO_2"] ? 1 : 0;
-        label = [[NSUserDefaults standardUserDefaults] stringForKey:
-                 [NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot]] ?: label;
+    NSUInteger slot = [self comboSlotForKey:key];
+    if (slot != NSNotFound) {
+        NSString *pref = [NSString stringWithFormat:@"mhgu_touch_combo_%lu", (unsigned long)slot];
+        return [[NSUserDefaults standardUserDefaults] stringForKey:pref] ?: (slot ? @"R+X" : @"A+B");
     }
-    return label ?: key;
+    NSDictionary *labels = @{@"CAMERA_STICK":@"CAM", @"FIRE":@"FIRE", @"RELOAD":@"LOAD",
+        @"AMMO_UP":@"AMMO+", @"AMMO_DOWN":@"AMMO−", @"ITEM_PREV":@"‹", @"ITEM_USE":@"Use",
+        @"ITEM_NEXT":@"›", @"ITEM_BAR":@"‹      ITEMS      ›"};
+    return [labels objectForKey:key] ?: key;
+}
+
+- (NSDictionary *)styleForKey:(NSString *)key {
+    id style = [_stylesV44 objectForKey:key];
+    return [style isKindOfClass:[NSDictionary class]] ? style : nil;
+}
+
+- (void)applyOpacityForKey:(NSString *)key {
+    UIView *view = [_namedControls objectForKey:key];
+    NSNumber *opacity = [[self styleForKey:key] objectForKey:@"alpha"];
+    CGFloat value = opacity ? [opacity doubleValue] : 1;
+    CGFloat alpha = _buttonOpacity * fmax(.25, fmin(1, value));
+    view.alpha = _editing ? MAX(.55, alpha) : alpha;
+}
+
+- (void)updateOpacity {
+    for (NSString *key in _namedControls) [self applyOpacityForKey:key];
+}
+
+- (void)applyStyleForKey:(NSString *)key {
+    UIView *view = [_namedControls objectForKey:key];
+    NSDictionary *style = [self styleForKey:key];
+    NSString *caption = [style objectForKey:@"caption"] ?: [self defaultCaptionV44:key];
+    UIColor *accent = [self accentForColorV44:[[style objectForKey:@"color"] integerValue]];
+    if ([view isKindOfClass:[MHGUTouchButton class]]) {
+        MHGUTouchButton *button = (MHGUTouchButton *)view;
+        [button setCaption:caption];
+        [button setAccentV44:accent];
+    } else {
+        if ([view isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)view setCaption:caption];
+        else if ([view isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)view setCaption:caption];
+        else if ([view isKindOfClass:[UIButton class]]) [(UIButton *)view setTitle:caption forState:UIControlStateNormal];
+        view.layer.borderColor = [accent colorWithAlphaComponent:.78].CGColor;
+    }
+    [self applyOpacityForKey:key];
 }
 - (void)applyStylesV44 {
-    for (NSString *key in _namedControls) {
-        UIView *v = [_namedControls objectForKey:key];
-        NSDictionary *style = [_stylesV44 objectForKey:key];
-        if (![style isKindOfClass:[NSDictionary class]]) style = nil;
-        NSString *caption = [style objectForKey:@"caption"] ?: [self defaultCaptionV44:key];
-        if ([v respondsToSelector:@selector(setCaption:)]) {
-            if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v setCaption:caption];
-            else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v setCaption:caption];
-            else if ([v isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)v setCaption:caption];
-        } else if ([v isKindOfClass:[UIButton class]]) {
-            [(UIButton *)v setTitle:caption forState:UIControlStateNormal];
-        }
-        UIColor *accent = [self accentForColorV44:[[style objectForKey:@"color"] integerValue]];
-        if ([v isKindOfClass:[MHGUTouchButton class]]) {
-            [(MHGUTouchButton *)v setAccentV44:accent];
-        } else {
-            v.layer.borderColor = (accent ?: [hudGold() colorWithAlphaComponent:.9]).CGColor;
-        }
+    for (NSString *key in _namedControls) [self applyStyleForKey:key];
+}
+
+- (void)showButtonList {
+    for (NSUInteger i = 0; i < _editorNamesV44.count; i++) {
+        NSString *key = [_editorNamesV44 objectAtIndex:i];
+        NSString *title = [self controlTitle:key];
+        UISwitch *visible = [self settingsSwitch:![_hiddenV44 containsObject:key]
+                                           action:@selector(buttonVisibilityChanged:)];
+        visible.tag = (NSInteger)i;
+        visible.accessibilityLabel = [NSString stringWithFormat:@"Show %@", title];
+        UIView *row = [self appendSettingsRow:nil accessory:visible];
+        UIButton *button = touch_menu_button([title stringByAppendingString:@"  ›"], self, @selector(openButtonSettings:));
+        button.accessibilityLabel = title;
+        button.accessibilityHint = @"Edit this button";
+        button.frame = CGRectMake(8, 1, MAX(1, row.bounds.size.width - 80), 46);
+        button.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        button.backgroundColor = [UIColor clearColor];
+        button.layer.borderWidth = 0;
+        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        button.tag = (NSInteger)i;
+        [row addSubview:button];
     }
-    [self updateOpacity];
 }
-- (void)updateEditorLayoutV44 {
-    if (!_editorPanelV44) return;
-    CGRect safe = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
-    if (CGRectIsEmpty(safe)) safe = self.bounds;
-    CGFloat width = MIN(560.0, MAX(280.0, safe.size.width - 20.0));
-    CGFloat height = MIN(330.0, MAX(190.0, safe.size.height - 16.0));
-    _editorPanelV44.frame = CGRectMake(CGRectGetMidX(safe)-width/2,
-                                      CGRectGetMidY(safe)-height/2, width, height);
-    UIView *header = [_editorPanelV44 viewWithTag:44001];
-    UIView *close = [_editorPanelV44 viewWithTag:44002];
-    header.frame = CGRectMake(12, 6, width-112, 32);
-    close.frame = CGRectMake(width-91, 5, 80, 33);
-    _editorScrollV44.frame = CGRectMake(9, 43, width-18, height-51);
-    [self updateEditorRowsV44];
+
+- (void)openButtonSettings:(UIButton *)sender {
+    if ((NSUInteger)sender.tag >= _editorNamesV44.count) return;
+    _buttonListOffset = _settingsScroll.contentOffset;
+    [_settingsControlKey release];
+    _settingsControlKey = [[_editorNamesV44 objectAtIndex:sender.tag] copy];
+    [self showSettingsPage];
 }
-- (void)updateEditorRowsV44 {
-    if (!_editorScrollV44) return;
-    for (UIView *v in [[_editorScrollV44.subviews copy] autorelease]) [v removeFromSuperview];
-    [_editorNamesV44 release];
-    _editorNamesV44 = [[[_namedControls allKeys] sortedArrayUsingSelector:@selector(compare:)] retain];
-    CGFloat w = _editorScrollV44.bounds.size.width;
-    CGFloat rowHeight = 42;
-    for (NSUInteger i=0; i<_editorNamesV44.count; i++) {
-        NSString *name = [_editorNamesV44 objectAtIndex:i];
-        BOOL visible = ![_hiddenV44 containsObject:name];
-        UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
-        b.frame = CGRectMake(2, i * rowHeight + 3, MAX(100, w-76), rowHeight-6);
-        b.tag = (NSInteger)i;
-        mhgu_style_menu(b);
-        b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        [b setTitle:[NSString stringWithFormat:@"  ✎  %@", name] forState:UIControlStateNormal];
-        [b addTarget:self action:@selector(editAppearanceV44:) forControlEvents:UIControlEventTouchUpInside];
-        [_editorScrollV44 addSubview:b];
-        UISwitch *sw = [[[UISwitch alloc] initWithFrame:CGRectZero] autorelease];
-        sw.tag = (NSInteger)i;
-        sw.on = visible;
-        sw.onTintColor = hudGold();
-        sw.center = CGPointMake(w - 30, i * rowHeight + rowHeight / 2);
-        [sw addTarget:self action:@selector(changeVisibilityV44:)
-              forControlEvents:UIControlEventValueChanged];
-        [_editorScrollV44 addSubview:sw];
-    }
-    _editorScrollV44.contentSize = CGSizeMake(w, _editorNamesV44.count * rowHeight);
-}
-- (void)toggleEditorV44:(id)sender {
+- (void)backToButtonList:(id)sender {
     (void)sender;
-    if (_editing) [self toggleEdit:nil];
-    _editorPanelV44.hidden = !_editorPanelV44.hidden;
-    if (!_editorPanelV44.hidden) {
-        [self updateEditorLayoutV44];
-        [self bringSubviewToFront:_editorPanelV44];
-    }
+    [self endEditing:YES];
+    [_settingsControlKey release];
+    _settingsControlKey = nil;
+    [self showSettingsPage];
 }
-- (void)closeEditorV44:(id)sender { (void)sender; _editorPanelV44.hidden = YES; }
-- (void)changeVisibilityV44:(UISwitch *)sender {
-    NSUInteger index = (NSUInteger)sender.tag;
-    if (index >= _editorNamesV44.count) return;
-    NSString *key = [_editorNamesV44 objectAtIndex:index];
-    UIView *v = [_namedControls objectForKey:key];
+- (void)buttonVisibilityChanged:(UISwitch *)sender {
+    if ((NSUInteger)sender.tag >= _editorNamesV44.count) return;
+    NSString *key = [_editorNamesV44 objectAtIndex:sender.tag];
     if (sender.isOn) [_hiddenV44 removeObject:key];
-    else {
-        [_hiddenV44 addObject:key];
-        if ([v respondsToSelector:@selector(resetInput)]) {
-            if ([v isKindOfClass:[MHGUTouchButton class]]) [(MHGUTouchButton *)v resetInput];
-            else if ([v isKindOfClass:[MHGUTouchStick class]]) [(MHGUTouchStick *)v resetInput];
-            else if ([v isKindOfClass:[MHGUTouchItemStrip class]]) [(MHGUTouchItemStrip *)v resetInput];
-        }
-        if (v == _itemPrevV44 || v == _itemNextV44) [self itemStopV44:(UIButton *)v];
-    }
+    else [_hiddenV44 addObject:key];
     [self applyVisibilityV44];
     [self saveProfileV44];
 }
-- (void)setAppearanceValueV44:(id)value forPart:(NSString *)part key:(NSString *)key {
-    NSMutableDictionary *sty = [NSMutableDictionary dictionaryWithDictionary:[_stylesV44 objectForKey:key] ?: @{}];
-    if (value) [sty setObject:value forKey:part];
-    else [sty removeObjectForKey:part];
-    if (sty.count) [_stylesV44 setObject:sty forKey:key];
+- (void)setAppearanceValue:(id)value field:(NSString *)field key:(NSString *)key {
+    if (!key) return;
+    NSMutableDictionary *style = [NSMutableDictionary dictionaryWithDictionary:[self styleForKey:key] ?: @{}];
+    if (value) [style setObject:value forKey:field];
+    else [style removeObjectForKey:field];
+    if (style.count) [_stylesV44 setObject:style forKey:key];
     else [_stylesV44 removeObjectForKey:key];
-    [self applyStylesV44];
+    [self applyStyleForKey:key];
     [self saveProfileV44];
 }
-- (void)editAppearanceV44:(UIButton *)sender {
-    if ((NSUInteger)sender.tag >= _editorNamesV44.count) return;
-    NSString *key = [_editorNamesV44 objectAtIndex:(NSUInteger)sender.tag];
-    UIViewController *vc = self.window.rootViewController;
-    if (!vc) return;
-    UIAlertController *menu = [UIAlertController alertControllerWithTitle:
-        [NSString stringWithFormat:@"⚒ %@  •  Workshop", key]
-        message:@"Rename a button, choose a color, or set its own opacity (independent of the main slider)."
-        preferredStyle:UIAlertControllerStyleAlert];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Rename" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        UIAlertController *input = [UIAlertController alertControllerWithTitle:@"Button inscription"
-            message:@"Enter up to 14 characters. This changes the label only, not its game input."
-            preferredStyle:UIAlertControllerStyleAlert];
-        [input addTextFieldWithConfigurationHandler:^(UITextField *f) {
-            f.text = [[_stylesV44 objectForKey:key] objectForKey:@"caption"] ?: [self defaultCaptionV44:key];
-            f.placeholder = key;
-        }];
-        [input addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [input addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-            (void)act;
-            NSString *v = [[[input.textFields firstObject] text] stringByTrimmingCharactersInSet:
-                           [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (v.length > 0) [self setAppearanceValueV44:[v substringToIndex:MIN((NSUInteger)14,v.length)]
-                                                       forPart:@"caption" key:key];
-        }]];
-        [vc presentViewController:input animated:YES completion:nil];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Accent color" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        UIAlertController *colors = [UIAlertController alertControllerWithTitle:@"Hunter's pigments"
-                          message:@"Pick a border/accent color" preferredStyle:UIAlertControllerStyleAlert];
-        NSArray *names = @[@"Original gold", @"Rathalos ruby", @"Lagiacrus teal", @"Forest moss", @"Mist violet", @"Parchment"];
-        for (NSUInteger i=0; i<names.count; i++) {
-            [colors addAction:[UIAlertAction actionWithTitle:[names objectAtIndex:i]
-                style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-                    (void)act;
-                    [self setAppearanceValueV44:@(i) forPart:@"color" key:key];
-                }]];
-        }
-        [colors addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [vc presentViewController:colors animated:YES completion:nil];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Individual opacity" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        UIAlertController *input = [UIAlertController alertControllerWithTitle:@"Individual opacity"
-              message:@"Enter a number from 25 to 100 percent. The global slider still applies."
-              preferredStyle:UIAlertControllerStyleAlert];
-        [input addTextFieldWithConfigurationHandler:^(UITextField *f) {
-            f.keyboardType = UIKeyboardTypeDecimalPad;
-            NSNumber *old = [[_stylesV44 objectForKey:key] objectForKey:@"alpha"];
-            f.text = [NSString stringWithFormat:@"%.0f", old ? [old doubleValue] * 100 : 100.0];
-        }];
-        [input addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [input addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act) {
-            (void)act;
-            float percent = [[[input.textFields firstObject] text] floatValue];
-            if (isfinite(percent) && percent >= 25 && percent <= 100)
-                [self setAppearanceValueV44:@(percent / 100.0f) forPart:@"alpha" key:key];
-        }]];
-        [vc presentViewController:input animated:YES completion:nil];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Reset appearance" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        (void)a;
-        [_stylesV44 removeObjectForKey:key];
-        [self applyStylesV44];
-        [self saveProfileV44];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
-    [vc presentViewController:menu animated:YES completion:nil];
+- (void)buttonLabelChanged:(UITextField *)sender {
+    NSString *text = [sender.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (text.length > 14) {
+        NSRange cluster = [text rangeOfComposedCharacterSequenceAtIndex:13];
+        text = [text substringToIndex:NSMaxRange(cluster) > 14 ? cluster.location : 14];
+    }
+    [self setAppearanceValue:(text.length ? text : nil) field:@"caption" key:_settingsControlKey];
+    sender.text = text.length ? text : [self defaultCaptionV44:_settingsControlKey];
 }
+- (void)buttonAccentChanged:(UISegmentedControl *)sender {
+    [self setAppearanceValue:@(sender.selectedSegmentIndex) field:@"color" key:_settingsControlKey];
+}
+- (void)buttonOpacityChanged:(UISlider *)sender {
+    [self setAppearanceValue:@(sender.value) field:@"alpha" key:_settingsControlKey];
+    [self showSliderValue:sender percent:YES];
+}
+- (void)resetButtonAppearance:(id)sender {
+    (void)sender;
+    [self endEditing:YES];
+    [_stylesV44 removeObjectForKey:_settingsControlKey];
+    [self applyStyleForKey:_settingsControlKey];
+    [self saveProfileV44];
+    [self showSettingsPage];
+}
+- (void)comboEntryChanged:(UITextField *)sender {
+    NSUInteger slot = [self comboSlotForKey:_settingsControlKey];
+    if (slot == NSNotFound) return;
+    BOOL valid = [self applyComboSlot:slot text:sender.text];
+    sender.textColor = valid ? hudCream() : [UIColor systemRedColor];
+    if (valid) {
+        sender.text = [self defaultCaptionV44:_settingsControlKey];
+        [self applyStyleForKey:_settingsControlKey];
+    }
+}
+
+- (void)showButtonSettings {
+    NSString *key = _settingsControlKey;
+    NSDictionary *style = [self styleForKey:key];
+    UISwitch *visible = [self settingsSwitch:![_hiddenV44 containsObject:key]
+                                       action:@selector(buttonVisibilityChanged:)];
+    visible.tag = (NSInteger)[_editorNamesV44 indexOfObject:key];
+    [self appendSettingsRow:@"Show when available" accessory:visible];
+    [self appendTextField:@"Label" text:([style objectForKey:@"caption"] ?: [self defaultCaptionV44:key])
+                   action:@selector(buttonLabelChanged:)];
+    NSInteger color = [[style objectForKey:@"color"] integerValue];
+    UISegmentedControl *colors = [self settingsSegments:@[@"Gold", @"Red", @"Teal", @"Green", @"Violet", @"Ivory"]
+        selected:MAX(0, MIN(5, color)) width:320 action:@selector(buttonAccentChanged:)];
+    colors.accessibilityLabel = @"Accent color";
+    [self appendSettingsRow:nil accessory:colors];
+    NSNumber *alpha = [style objectForKey:@"alpha"];
+    [self appendSlider:@"Button opacity" minimum:.25 maximum:1 value:(alpha ? alpha.floatValue : 1)
+                percent:YES action:@selector(buttonOpacityChanged:)];
+
+    if ([self comboSlotForKey:key] != NSNotFound) {
+        UITextField *field = [self appendTextField:@"Button pair" text:[self defaultCaptionV44:key]
+                                           action:@selector(comboEntryChanged:)];
+        field.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+        field.accessibilityHint = @"Enter two different inputs, such as R plus X";
+        UIView *row = [self appendSettingsRow:@"Use two different inputs, e.g. R+X" accessory:nil];
+        row.alpha = .74;
+    }
+    [self appendSettingsAction:@"Move & resize" action:@selector(moveSelectedControl:)];
+    [self appendSettingsAction:@"Reset appearance" action:@selector(resetButtonAppearance:)];
+}
+
 // Taps advance immediately. Holding repeats at a controlled rate; timers are
 // cancelled on touch end, backgrounding, hiding controls, or profile switching.
 - (void)startItemRepeatV44:(NSInteger)index {
@@ -1764,20 +1813,25 @@ static void mhgu_style_menu(UIButton *button) {
         _repeatLastV44[index] = now;
     }
 }
-- (void)itemStopV44:(UIButton *)sender {
+- (void)stopItemRepeat:(UIButton *)sender {
     NSInteger index = sender == _itemPrevV44 ? 0 : 1;
     _repeatHeldV44[index] = NO;
     [_repeatTimerV44[index] invalidate];
     [_repeatTimerV44[index] release];
     _repeatTimerV44[index] = nil;
 }
-- (void)toggleHudV44:(id)sender {
-    (void)sender;
-    _hudOnV44 = !_hudOnV44;
-    _hudLabelV44.hidden = !_hudOnV44;
-    _hudPrevMsV44 = 0;
-    [_hudButtonV44 setTitle:(_hudOnV44 ? @"HUD:ON" : @"HUD:OFF") forState:UIControlStateNormal];
-    [[NSUserDefaults standardUserDefaults] setBool:_hudOnV44 forKey:@"mhgu_touch_hud_v44"];
+- (void)updateHudTimer {
+    BOOL show = _hudOnV44 && mhgu_ios_is_foreground();
+    if (show && !_hudTimerV44) {
+        _hudPrevMsV44 = 0;
+        _hudTimerV44 = [[NSTimer scheduledTimerWithTimeInterval:.35 target:self
+                  selector:@selector(updateHudV44:) userInfo:nil repeats:YES] retain];
+        [self updateHudV44:_hudTimerV44];
+    } else if (!show && _hudTimerV44) {
+        [_hudTimerV44 invalidate];
+        [_hudTimerV44 release];
+        _hudTimerV44 = nil;
+    }
 }
 - (void)updateHudV44:(NSTimer *)timer {
     (void)timer;
@@ -1811,14 +1865,13 @@ static void mhgu_style_menu(UIButton *button) {
         cy += atomic_load_explicit(&s_swipeRy, memory_order_relaxed) / 32767.0f;
     }
     _hudLabelV44.text = [NSString stringWithFormat:
-        @"  FPS %.1f / %d target   •   BTN %@\n  MOVE %.1f,%.1f  CAM %.1f,%.1f  F:%lu",
+        @"  %.1f/%d FPS · %@\n  MOVE %.1f %.1f  CAM %.1f %.1f  F:%lu",
         fps, mhgu_touch_fps_get(), pressed, mx, my, cx, cy,
         (unsigned long)_touchOwnersV441.count + (_cameraFinger ? 1u : 0u)];
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self resetAll];
-    [_editFinger release];
     [_namedControls release];
     [_touchOwnersV441 release];
     [_customLayout release];
@@ -1826,14 +1879,11 @@ static void mhgu_style_menu(UIButton *button) {
     [_hiddenV44 release];
     [_stylesV44 release];
     [_editorNamesV44 release];
-    [_editorScrollV44 release];
-    [_editorPanelV44 release];
+    [_settingsControlKey release];
+    [_layoutBeforeEdit release];
     [_hudTimerV44 invalidate];
     [_hudTimerV44 release];
     [_hudLabelV44 release];
-    [_opacitySlider release];
-    [_sensitivitySlider release];
-    [_sensitivityText release];
     [super dealloc];
 }
 @end
@@ -1862,5 +1912,5 @@ void mhgu_touch_install(SDL_Window *window) {
     [uiWindow addSubview:s_overlay];
     [s_overlay setNeedsLayout];
     [s_overlay layoutIfNeeded];
-    NSLog(@"[MHGU Touch] Native touchscreen controller installed");
+    NSLog(@"[MHGU Touch] V4.5 touchscreen controls installed");
 }
